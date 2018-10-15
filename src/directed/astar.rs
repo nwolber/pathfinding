@@ -77,19 +77,16 @@ use super::reverse_path;
 ///                    |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").1, 4);
 /// ```
-pub fn astar<N, C, FN, IN, FH, FS>(
+pub fn astar<N, C, IN>(
     start: &N,
-    mut successors: FN,
-    mut heuristic: FH,
-    mut success: FS,
+    mut successors: impl FnMut(&N) -> IN,
+    mut heuristic: impl FnMut(&N) -> C,
+    mut success: impl FnMut(&N) -> bool,
 ) -> Option<(Vec<N>, C)>
 where
     N: Eq + Hash + Clone,
     C: Zero + Ord + Copy,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
-    FH: FnMut(&N) -> C,
-    FS: FnMut(&N) -> bool,
 {
     let mut to_see = BinaryHeap::new();
     to_see.push(SmallestCostHolder {
@@ -166,19 +163,16 @@ where
 ///
 /// Each path comprises both the start and an end node. Note that while every path shares the same
 /// start node, different paths may have different end nodes.
-pub fn astar_bag<N, C, FN, IN, FH, FS>(
+pub fn astar_bag<N, C, IN>(
     start: &N,
-    mut successors: FN,
-    mut heuristic: FH,
-    mut success: FS,
+    mut successors: impl FnMut(&N) -> IN,
+    mut heuristic: impl FnMut(&N) -> C,
+    mut success: impl FnMut(&N) -> bool,
 ) -> Option<(AstarSolution<N>, C)>
 where
     N: Eq + Hash + Clone,
     C: Zero + Ord + Copy,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
-    FH: FnMut(&N) -> C,
-    FS: FnMut(&N) -> bool,
 {
     let mut to_see = BinaryHeap::new();
     let mut min_cost = None;
@@ -283,19 +277,16 @@ where
 /// ### Warning
 ///
 /// The number of results with the same value might be very large in some graphs. Use with caution.
-pub fn astar_bag_collect<N, C, FN, IN, FH, FS>(
+pub fn astar_bag_collect<N, C, IN>(
     start: &N,
-    successors: FN,
-    heuristic: FH,
-    success: FS,
+    successors: impl FnMut(&N) -> IN,
+    heuristic: impl FnMut(&N) -> C,
+    success: impl FnMut(&N) -> bool,
 ) -> Option<(Vec<Vec<N>>, C)>
 where
     N: Eq + Hash + Clone,
     C: Zero + Ord + Copy,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
-    FH: FnMut(&N) -> C,
-    FS: FnMut(&N) -> bool,
 {
     astar_bag(start, successors, heuristic, success)
         .map(|(solutions, cost)| (solutions.collect(), cost))

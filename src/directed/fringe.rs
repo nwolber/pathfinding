@@ -78,19 +78,16 @@ use std::usize;
 ///                     |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").1, 4);
 /// ```
-pub fn fringe<N, C, FN, IN, FH, FS>(
+pub fn fringe<N, C, IN>(
     start: &N,
-    mut successors: FN,
-    mut heuristic: FH,
-    mut success: FS,
+    mut successors: impl FnMut(&N) -> IN,
+    mut heuristic: impl FnMut(&N) -> C,
+    mut success: impl FnMut(&N) -> bool,
 ) -> Option<(Vec<N>, C)>
 where
     N: Eq + Hash + Clone,
     C: Bounded + Zero + Ord + Copy,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
-    FH: FnMut(&N) -> C,
-    FS: FnMut(&N) -> bool,
 {
     let mut now = VecDeque::new();
     let mut later = VecDeque::new();

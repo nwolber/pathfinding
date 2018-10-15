@@ -57,12 +57,14 @@
 ///                  |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").len(), 5);
 /// ```
-pub fn iddfs<N, FN, IN, FS>(start: N, mut successors: FN, mut success: FS) -> Option<Vec<N>>
+pub fn iddfs<N, IN>(
+    start: N,
+    mut successors: impl FnMut(&N) -> IN,
+    mut success: impl FnMut(&N) -> bool,
+) -> Option<Vec<N>>
 where
     N: Eq,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
-    FS: FnMut(&N) -> bool,
 {
     let mut path = vec![start];
 
@@ -84,17 +86,15 @@ enum Path {
     NoneAtThisDepth,
 }
 
-fn step<N, FN, IN, FS>(
+fn step<N, IN>(
     path: &mut Vec<N>,
-    successors: &mut FN,
-    success: &mut FS,
+    successors: &mut impl FnMut(&N) -> IN,
+    success: &mut impl FnMut(&N) -> bool,
     depth: usize,
 ) -> Path
 where
     N: Eq,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
-    FS: FnMut(&N) -> bool,
 {
     if depth == 0 {
         Path::NoneAtThisDepth

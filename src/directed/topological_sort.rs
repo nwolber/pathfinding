@@ -67,10 +67,12 @@ use std::hash::Hash;
 /// set.sort();
 /// assert_eq!(set, vec![7, 8, 9]);
 /// ```
-pub fn topological_sort<N, FN, IN>(nodes: &[N], mut successors: FN) -> Result<Vec<N>, N>
+pub fn topological_sort<N, IN>(
+    nodes: &[N],
+    mut successors: impl FnMut(&N) -> IN,
+) -> Result<Vec<N>, N>
 where
     N: Eq + Hash + Clone,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
 {
     let mut unmarked: HashSet<N> = nodes.iter().cloned().collect::<HashSet<_>>();
@@ -91,9 +93,9 @@ where
     Ok(sorted.into_iter().collect())
 }
 
-fn visit<N, FN, IN>(
+fn visit<N, IN>(
     node: &N,
-    successors: &mut FN,
+    successors: &mut impl FnMut(&N) -> IN,
     unmarked: &mut HashSet<N>,
     marked: &mut HashSet<N>,
     temp: &mut HashSet<N>,
@@ -101,7 +103,6 @@ fn visit<N, FN, IN>(
 ) -> Result<(), N>
 where
     N: Eq + Hash + Clone,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
 {
     unmarked.remove(node);

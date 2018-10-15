@@ -88,10 +88,12 @@ where
 ///
 /// The function returns a list of strongly connected components sets. It will contain
 /// at least one component (the one containing the `start` node).
-pub fn strongly_connected_components_from<N, FN, IN>(start: &N, successors: FN) -> Vec<Vec<N>>
+pub fn strongly_connected_components_from<N, IN>(
+    start: &N,
+    successors: impl FnMut(&N) -> IN,
+) -> Vec<Vec<N>>
 where
     N: Clone + Hash + Eq,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
 {
     let mut params = Params::new(&[], successors);
@@ -106,10 +108,9 @@ where
 ///
 /// The function returns the strongly connected component containing the node,
 /// which is guaranteed to contain at least `node`.
-pub fn strongly_connected_component<N, FN, IN>(node: &N, successors: FN) -> Vec<N>
+pub fn strongly_connected_component<N, IN>(node: &N, successors: impl FnMut(&N) -> IN) -> Vec<N>
 where
     N: Clone + Hash + Eq,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
 {
     strongly_connected_components_from(node, successors)
@@ -123,10 +124,12 @@ where
 /// - `successors` returns a list of successors for a given node.
 ///
 /// The function returns a list of strongly connected components sets.
-pub fn strongly_connected_components<N, FN, IN>(nodes: &[N], successors: FN) -> Vec<Vec<N>>
+pub fn strongly_connected_components<N, IN>(
+    nodes: &[N],
+    successors: impl FnMut(&N) -> IN,
+) -> Vec<Vec<N>>
 where
     N: Clone + Hash + Eq,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
 {
     let mut params = Params::new(nodes, successors);

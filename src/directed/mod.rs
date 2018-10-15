@@ -15,10 +15,13 @@ use indexmap::IndexMap;
 use itertools;
 use std::hash::Hash;
 
-fn reverse_path<N, V, F>(parents: &IndexMap<N, V>, mut parent: F, start: usize) -> Vec<N>
+fn reverse_path<N, V>(
+    parents: &IndexMap<N, V>,
+    mut parent: impl FnMut(&V) -> usize,
+    start: usize,
+) -> Vec<N>
 where
     N: Eq + Hash + Clone,
-    F: FnMut(&V) -> usize,
 {
     let path = itertools::unfold(start, |i| {
         parents.get_index(*i).map(|(node, value)| {

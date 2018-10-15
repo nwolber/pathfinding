@@ -70,19 +70,16 @@ use std::hash::Hash;
 ///                    |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").1, 4);
 /// ```
-pub fn idastar<N, C, FN, IN, FH, FS>(
+pub fn idastar<N, C, IN>(
     start: &N,
-    mut successors: FN,
-    mut heuristic: FH,
-    mut success: FS,
+    mut successors: impl FnMut(&N) -> IN,
+    mut heuristic: impl FnMut(&N) -> C,
+    mut success: impl FnMut(&N) -> bool,
 ) -> Option<(Vec<N>, C)>
 where
     N: Eq + Hash + Clone,
     C: Zero + Ord + Copy,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
-    FH: FnMut(&N) -> C,
-    FS: FnMut(&N) -> bool,
 {
     let mut bound = heuristic(start);
     let mut path = vec![start.clone()];
@@ -113,21 +110,18 @@ enum Path<N, C> {
     Impossible,
 }
 
-fn search<N, C, FN, IN, FH, FS>(
+fn search<N, C, IN>(
     path: &mut Vec<N>,
     cost: C,
     bound: C,
-    successors: &mut FN,
-    heuristic: &mut FH,
-    success: &mut FS,
+    successors: &mut impl FnMut(&N) -> IN,
+    heuristic: &mut impl FnMut(&N) -> C,
+    success: &mut impl FnMut(&N) -> bool,
 ) -> Path<N, C>
 where
     N: Eq + Hash + Clone,
     C: Zero + Ord + Copy,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
-    FH: FnMut(&N) -> C,
-    FS: FnMut(&N) -> bool,
 {
     let neighbs = {
         let start = &path[path.len() - 1];

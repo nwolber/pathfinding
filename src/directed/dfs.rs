@@ -39,12 +39,14 @@
 /// assert_eq!(dfs(1, |&n| vec![n*n, n+1].into_iter().filter(|&x| x <= 17), |&n| n == 17),
 ///            Some(vec![1, 2, 4, 16, 17]));
 /// ```
-pub fn dfs<N, FN, IN, FS>(start: N, mut successors: FN, mut success: FS) -> Option<Vec<N>>
+pub fn dfs<N, IN>(
+    start: N,
+    mut successors: impl FnMut(&N) -> IN,
+    mut success: impl FnMut(&N) -> bool,
+) -> Option<Vec<N>>
 where
     N: Eq,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
-    FS: FnMut(&N) -> bool,
 {
     let mut path = vec![start];
     if step(&mut path, &mut successors, &mut success) {
@@ -54,12 +56,14 @@ where
     }
 }
 
-fn step<N, FN, IN, FS>(path: &mut Vec<N>, successors: &mut FN, success: &mut FS) -> bool
+fn step<N, IN>(
+    path: &mut Vec<N>,
+    successors: &mut impl FnMut(&N) -> IN,
+    success: &mut impl FnMut(&N) -> bool,
+) -> bool
 where
     N: Eq,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
-    FS: FnMut(&N) -> bool,
 {
     if success(path.last().unwrap()) {
         true

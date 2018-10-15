@@ -64,13 +64,15 @@ use super::astar::astar;
 ///                       |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").1, 4);
 /// ```
-pub fn dijkstra<N, C, FN, IN, FS>(start: &N, successors: FN, success: FS) -> Option<(Vec<N>, C)>
+pub fn dijkstra<N, C, IN>(
+    start: &N,
+    successors: impl FnMut(&N) -> IN,
+    success: impl FnMut(&N) -> bool,
+) -> Option<(Vec<N>, C)>
 where
     N: Eq + Hash + Clone,
     C: Zero + Ord + Copy,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
-    FS: FnMut(&N) -> bool,
 {
     let zero = Zero::zero();
     astar(start, successors, |_| zero, success)

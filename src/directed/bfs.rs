@@ -64,12 +64,14 @@ use super::reverse_path;
 ///                  |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").len(), 5);
 /// ```
-pub fn bfs<N, FN, IN, FS>(start: &N, mut successors: FN, mut success: FS) -> Option<Vec<N>>
+pub fn bfs<N, IN>(
+    start: &N,
+    mut successors: impl FnMut(&N) -> IN,
+    mut success: impl FnMut(&N) -> bool,
+) -> Option<Vec<N>>
 where
     N: Eq + Hash + Clone,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
-    FS: FnMut(&N) -> bool,
 {
     let mut to_see = VecDeque::new();
     let mut parents: IndexMap<N, usize> = IndexMap::new();
@@ -102,10 +104,9 @@ where
 /// Except the start node which will be included both at the beginning and the end of
 /// the path, a node will never be included twice in the path as determined
 /// by the `Eq` relationship.
-pub fn bfs_loop<N, FN, IN>(start: &N, mut successors: FN) -> Option<Vec<N>>
+pub fn bfs_loop<N, IN>(start: &N, mut successors: impl FnMut(&N) -> IN) -> Option<Vec<N>>
 where
     N: Eq + Hash + Clone,
-    FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = N>,
 {
     // If the node is linked to itself, we have the shortest path.
