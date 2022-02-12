@@ -102,11 +102,12 @@ where
 /// assert!(empty.is_empty());
 /// ```
 
-pub fn yen<N, C, FN, IN, FS>(
+pub fn yen<N, C, FN, IN, FS, FA>(
     start: &N,
     mut successors: FN,
     mut success: FS,
     k: usize,
+    mut abort: FA,
 ) -> Vec<(Vec<N>, C)>
 where
     N: Eq + Hash + Clone,
@@ -114,6 +115,7 @@ where
     FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
     FS: FnMut(&N) -> bool,
+    FA: FnMut() -> bool,
 {
     let (n, c) = match dijkstra_internal(start, &mut successors, &mut success) {
         Some(x) => x,
@@ -125,7 +127,7 @@ where
     let mut routes = vec![Path { nodes: n, cost: c }];
     // A min-heap to store our lowest-cost route candidate
     let mut k_routes = BinaryHeap::new();
-    for ki in 0..(k - 1) {
+    'outer: for ki in 0..(k - 1) {
         if routes.len() <= ki {
             // We have no more routes to explore
             break;
@@ -134,6 +136,10 @@ where
         let previous = &routes[ki].nodes;
         // Iterate over every node except the sink node.
         for i in 0..(previous.len() - 1) {
+            if abort() {
+                break 'outer;
+            }
+
             let spur_node = &previous[i];
             let root_path = &previous[0..i];
 
