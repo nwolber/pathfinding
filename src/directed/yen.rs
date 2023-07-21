@@ -25,12 +25,7 @@ where
     C: Zero + Ord + Copy,
 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // Compare costs first, then amount of nodes
-        let cmp = self.cost.partial_cmp(&other.cost);
-        match cmp {
-            Some(Ordering::Equal) => self.nodes.len().partial_cmp(&other.nodes.len()),
-            _ => cmp,
-        }
+        Some(self.cmp(other))
     }
 }
 
@@ -117,9 +112,8 @@ where
     FS: FnMut(&N) -> bool,
     FA: FnMut() -> bool,
 {
-    let (n, c) = match dijkstra_internal(start, &mut successors, &mut success) {
-        Some(x) => x,
-        None => return vec![],
+    let Some((n, c)) = dijkstra_internal(start, &mut successors, &mut success) else {
+        return vec![];
     };
 
     let mut visited = HashSet::new();
@@ -128,8 +122,8 @@ where
     // A min-heap to store our lowest-cost route candidate
     let mut k_routes = BinaryHeap::new();
     'outer: for ki in 0..(k - 1) {
-        if routes.len() <= ki {
-            // We have no more routes to explore
+        if routes.len() <= ki || routes.len() == k {
+            // We have no more routes to explore, or we have found enough.
             break;
         }
         // Take the most recent route to explore new spurs.
@@ -179,11 +173,27 @@ where
             }
         }
         if let Some(k_route) = k_routes.pop() {
-            routes.push(k_route.0);
+            let route = k_route.0;
+            let cost = route.cost;
+            routes.push(route);
+            // If we have other potential best routes with the same cost, we can insert
+            // them in the found routes since we will not find a better alternative.
+            while routes.len() < k {
+                let Some(k_route) = k_routes.peek() else {
+                    break;
+                };
+                if k_route.0.cost == cost {
+                    let Some(k_route) = k_routes.pop() else {
+                        break; // Cannot break
+                    };
+                    routes.push(k_route.0);
+                } else {
+                    break; // Other routes have higher cost
+                }
+            }
         }
     }
 
-    routes.sort_unstable();
     routes
         .into_iter()
         .map(|Path { nodes, cost }| (nodes, cost))

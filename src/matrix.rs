@@ -1,11 +1,11 @@
 //! Matrix of an arbitrary type and utilities to rotate, transpose, etc.
 
 use crate::directed::bfs::bfs_reach;
-use crate::utils::uint_sqrt;
-use itertools::iproduct;
-use itertools::Itertools;
+use crate::directed::dfs::dfs_reach;
+use crate::utils::{in_direction, move_in_direction, uint_sqrt};
 use num_traits::Signed;
 use std::collections::BTreeSet;
+use std::iter::FusedIterator;
 use std::ops::{Deref, DerefMut, Index, IndexMut, Neg, Range};
 use std::slice::{Iter, IterMut};
 use thiserror::Error;
@@ -13,6 +13,8 @@ use thiserror::Error;
 /// Matrix of an arbitrary type. Data are stored consecutively in
 /// memory, by rows. Raw data can be accessed using `as_ref()`
 /// or `as_mut()`.
+///
+/// Coordinates within the matrix are represented as (row, column) tuples
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Matrix<C> {
     /// Rows
@@ -43,6 +45,30 @@ impl<C: Clone> Matrix<C> {
         }
     }
 
+    /// Create new matrix with each cell's initial value given by a
+    /// function of its position.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the number of rows is greater than 0
+    /// and the number of columns is 0. If you need to build a matrix
+    /// column by column, build it row by row and call transposition
+    /// or rotation functions on it.
+    pub fn from_fn(rows: usize, columns: usize, cb: impl FnMut((usize, usize)) -> C) -> Self {
+        assert!(
+            rows == 0 || columns > 0,
+            "unable to create a matrix with empty rows"
+        );
+        Self {
+            rows,
+            columns,
+            data: (0..rows)
+                .flat_map(move |row| (0..columns).map(move |column| (row, column)))
+                .map(cb)
+                .collect(),
+        }
+    }
+
     /// Create new square matrix with initial value.
     pub fn new_square(size: usize, value: C) -> Self {
         Self::new(size, size, value)
@@ -50,12 +76,15 @@ impl<C: Clone> Matrix<C> {
 
     /// Fill with a known value.
     pub fn fill(&mut self, value: C) {
-        self.data.clear();
-        self.data.resize(self.rows * self.columns, value);
+        self.data.fill(value);
     }
 
-    /// Return a copy of a sub-matrix, or return an error if the
-    /// ranges are outside the original matrix.
+    /// Return a copy of a sub-matrix.
+    ///
+    /// # Errors
+    ///
+    /// [`MatrixFormatError::WrongIndex`] if the ranges
+    /// are outside the original matrix.
     #[allow(clippy::needless_pass_by_value)]
     pub fn slice(
         &self,
@@ -63,9 +92,7 @@ impl<C: Clone> Matrix<C> {
         columns: Range<usize>,
     ) -> Result<Self, MatrixFormatError> {
         if rows.end > self.rows || columns.end > self.columns {
-            return Err(MatrixFormatError(
-                "slice far end points outside the matrix".to_owned(),
-            ));
+            return Err(MatrixFormatError::WrongIndex);
         }
         let height = rows.end - rows.start;
         let width = columns.end - columns.start;
@@ -134,6 +161,11 @@ impl<C: Clone> Matrix<C> {
     }
 
     /// Return a copy of the matrix after transposition.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if the transposed matrix would end
+    /// up with empty rows.
     #[must_use]
     pub fn transposed(&self) -> Self {
         assert!(
@@ -143,33 +175,44 @@ impl<C: Clone> Matrix<C> {
         Self {
             rows: self.columns,
             columns: self.rows,
-            data: iproduct!(0..self.columns, 0..self.rows)
-                .map(|(c, r)| self.data[r * self.columns + c].clone())
+            data: (0..self.columns)
+                .flat_map(|c| (0..self.rows).map(move |r| self.data[r * self.columns + c].clone()))
                 .collect(),
         }
     }
 
-    /// Extend the matrix in place by adding one full row. An error
-    /// is returned if the row does not have the expected number of
-    /// elements or if an empty row is passed.
+    /// Extend the matrix in place by adding one full row.
+    ///
+    /// # Errors
+    ///
+    /// - [`MatrixFormatError::WrongLength`] if the row does not have
+    /// the expected number of elements.
+    /// - [`MatrixFormatError::EmptyRow`] if an empty row is passed.
     pub fn extend(&mut self, row: &[C]) -> Result<(), MatrixFormatError> {
         if row.is_empty() {
-            return Err(MatrixFormatError(
-                "adding an empty row is not allowed".to_owned(),
-            ));
+            return Err(MatrixFormatError::EmptyRow);
         }
         if self.columns != row.len() {
-            return Err(MatrixFormatError(format!(
-                "new row has {} columns intead of expected {}",
-                row.len(),
-                self.columns
-            )));
+            return Err(MatrixFormatError::WrongLength);
         }
         self.rows += 1;
         for e in row {
             self.data.push(e.clone());
         }
         Ok(())
+    }
+
+    /// Transform the matrix into another matrix with the same shape
+    /// after applying a transforming function to every elements.
+    pub fn map<O, F>(self, transform: F) -> Matrix<O>
+    where
+        F: FnMut(C) -> O,
+    {
+        Matrix {
+            rows: self.rows,
+            columns: self.columns,
+            data: self.data.into_iter().map(transform).collect(),
+        }
     }
 }
 
@@ -204,20 +247,24 @@ impl<C: Clone + Signed> Neg for Matrix<C> {
 impl<C> Matrix<C> {
     /// Create new matrix from vector values. The first value
     /// will be assigned to index (0, 0), the second one to index (0, 1),
-    /// and so on. An error is returned instead if data length does not
-    /// correspond to the announced size.
+    /// and so on.
+    ///
+    /// # Errors
+    ///
+    /// - [`MatrixFormatError::WrongLength`] if the data length does not
+    /// correspond to the announced size
+    /// - [`MatrixFormatError::EmptyRow`] if the matrix would contain
+    /// an empty row
     pub fn from_vec(
         rows: usize,
         columns: usize,
         values: Vec<C>,
     ) -> Result<Self, MatrixFormatError> {
-        if rows != 0 && columns == 0 {
-            return Err(MatrixFormatError(
-                "creating a matrix with empty rows is not allowed".to_owned(),
-            ));
-        }
         if rows * columns != values.len() {
-            return Err(MatrixFormatError ( format!("length of vector does not correspond to announced dimensions ({} instead of {}×{}={})", values.len(), rows, columns, rows*columns)));
+            return Err(MatrixFormatError::WrongLength);
+        }
+        if rows != 0 && columns == 0 {
+            return Err(MatrixFormatError::EmptyRow);
         }
         Ok(Self {
             rows,
@@ -228,17 +275,17 @@ impl<C> Matrix<C> {
 
     /// Create new square matrix from vector values. The first value
     /// will be assigned to index (0, 0), the second one to index (0, 1),
-    /// and so on. An error is returned if the number of values is not a
-    /// square number.
+    /// and so on.
+    ///
+    /// # Errors
+    ///
+    /// [`MatrixFormatError::WrongLength`] if the number of values is not a
+    /// square number or if `values` is empty.
     pub fn square_from_vec(values: Vec<C>) -> Result<Self, MatrixFormatError> {
-        if let Some(size) = uint_sqrt(values.len()) {
-            Self::from_vec(size, size, values)
-        } else {
-            Err(MatrixFormatError(format!(
-                "length of vector ({}) is not a square number",
-                values.len()
-            )))
-        }
+        let Some(size) = uint_sqrt(values.len()) else {
+            return Err(MatrixFormatError::WrongLength);
+        };
+        Self::from_vec(size, size, values)
     }
 
     /// Create new empty matrix with a predefined number of columns.
@@ -246,7 +293,7 @@ impl<C> Matrix<C> {
     /// later using [`extend`](Matrix::extend) and does not require
     /// a filler element compared to [`Matrix::new`].
     #[must_use]
-    pub fn new_empty(columns: usize) -> Self {
+    pub const fn new_empty(columns: usize) -> Self {
         Self {
             rows: 0,
             columns,
@@ -256,15 +303,19 @@ impl<C> Matrix<C> {
 
     /// Check if the matrix is empty.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.rows == 0
     }
 
     /// Create a matrix from something convertible to an iterator on rows,
     /// each row being convertible to an iterator on columns.
     ///
-    /// An error will be returned if length of rows differ or if empty rows
-    /// are added.
+    /// # Errors
+    ///
+    /// [`MatrixFormatError::WrongLength`] if length of rows differ or
+    /// the rows are empty.
+    ///
+    /// # Example
     ///
     /// ```
     /// use pathfinding::matrix::*;
@@ -286,16 +337,11 @@ impl<C> Matrix<C> {
             let mut data = first_row.into_iter().collect::<Vec<_>>();
             let number_of_columns = data.len();
             let mut number_of_rows = 1;
-            for (i, row) in rows.enumerate() {
+            for row in rows {
                 number_of_rows += 1;
                 data.extend(row);
                 if number_of_rows * number_of_columns != data.len() {
-                    return Err(MatrixFormatError(format!(
-                        "data for row {} (starting at 0) has len {} instead of expected {}",
-                        i + 1,
-                        data.len() - (number_of_rows - 1) * number_of_columns,
-                        number_of_columns
-                    )));
+                    return Err(MatrixFormatError::WrongLength);
                 }
             }
             Self::from_vec(number_of_rows, number_of_columns, data)
@@ -306,7 +352,7 @@ impl<C> Matrix<C> {
 
     /// Check if a matrix is a square one.
     #[must_use]
-    pub fn is_square(&self) -> bool {
+    pub const fn is_square(&self) -> bool {
         self.rows == self.columns
     }
 
@@ -316,7 +362,8 @@ impl<C> Matrix<C> {
     ///
     /// This function returns a meaningless result if the
     /// coordinates do not designate a cell.
-    pub unsafe fn idx_unchecked(&self, i: (usize, usize)) -> usize {
+    #[must_use]
+    pub const unsafe fn idx_unchecked(&self, i: (usize, usize)) -> usize {
         i.0 * self.columns + i.1
     }
 
@@ -344,7 +391,7 @@ impl<C> Matrix<C> {
 
     /// Check if the coordinates designate a matrix cell.
     #[must_use]
-    pub fn within_bounds(&self, (row, column): (usize, usize)) -> bool {
+    pub const fn within_bounds(&self, (row, column): (usize, usize)) -> bool {
         row < self.rows && column < self.columns
     }
 
@@ -455,7 +502,7 @@ impl<C> Matrix<C> {
             (0..0, 0..0)
         };
         row_range
-            .cartesian_product(col_range)
+            .flat_map(move |r| col_range.clone().map(move |c| (r, c)))
             .filter(move |&(rr, cc)| (rr != r || cc != c) && (diagonals || rr == r || cc == c))
     }
 
@@ -476,10 +523,10 @@ impl<C> Matrix<C> {
     #[must_use]
     pub fn move_in_direction(
         &self,
-        index: (usize, usize),
+        start: (usize, usize),
         direction: (isize, isize),
     ) -> Option<(usize, usize)> {
-        move_in_direction(index, direction, self.rows, self.columns)
+        move_in_direction(start, direction, (self.rows, self.columns))
     }
 
     /// Return an iterator of cells in a given direction starting from
@@ -509,16 +556,10 @@ impl<C> Matrix<C> {
     /// ```
     pub fn in_direction(
         &self,
-        index: (usize, usize),
+        start: (usize, usize),
         direction: (isize, isize),
     ) -> impl Iterator<Item = (usize, usize)> {
-        let (rows, columns) = (self.rows, self.columns);
-        itertools::unfold(index, move |current| {
-            move_in_direction(*current, direction, rows, columns).map(|next| {
-                *current = next;
-                next
-            })
-        })
+        in_direction(start, direction, (self.rows, self.columns))
     }
 
     /// Return an iterator on rows of the matrix.
@@ -530,21 +571,66 @@ impl<C> Matrix<C> {
     /// Return an iterator on the Matrix indices, first row first. The values are
     /// computed when this method is called and will not change even if new rows are
     /// added before the iterator is consumed.
+    #[deprecated(since = "4.1.0", note = "use the .keys() method instead")]
     pub fn indices(&self) -> impl Iterator<Item = (usize, usize)> {
+        self.keys()
+    }
+
+    /// Return an iterator on the Matrix indices, first row first. The values are
+    /// computed when this method is called and will not change even if new rows are
+    /// added before the iterator is consumed.
+    pub fn keys(&self) -> impl Iterator<Item = (usize, usize)> {
         let columns = self.columns;
         (0..self.rows).flat_map(move |r| (0..columns).map(move |c| (r, c)))
     }
 
     /// Return an iterator on values, first row first.
-    #[must_use]
     pub fn values(&self) -> Iter<C> {
         self.data.iter()
     }
 
     /// Return a mutable iterator on values, first row first.
-    #[must_use]
     pub fn values_mut(&mut self) -> IterMut<C> {
         self.data.iter_mut()
+    }
+
+    /// Return an iterator on the Matrix coordinates and values, first row first.
+    pub fn items(&self) -> impl Iterator<Item = ((usize, usize), &C)> {
+        self.keys().zip(self.values())
+    }
+
+    /// Return an iterator on the Matrix coordinates and mutable values,
+    /// first row first.
+    pub fn items_mut(&mut self) -> impl Iterator<Item = ((usize, usize), &mut C)> {
+        self.keys().zip(self.values_mut())
+    }
+
+    /// Return a set of the indices reachable from a candidate starting point
+    /// and for which the given predicate is valid. This can be used for example
+    /// to implement a flood-filling algorithm. Since the indices are collected
+    /// into a collection, they can later be used without keeping a reference on the
+    /// matrix itself, e.g., to modify the matrix.
+    ///
+    /// The search is done using a breadth first search (BFS) algorithm.
+    ///
+    /// # See also
+    ///
+    /// The [`dfs_reachable()`](`Self::dfs_reachable`) method performs a DFS search instead.
+    pub fn bfs_reachable<P>(
+        &self,
+        start: (usize, usize),
+        diagonals: bool,
+        mut predicate: P,
+    ) -> BTreeSet<(usize, usize)>
+    where
+        P: FnMut((usize, usize)) -> bool,
+    {
+        bfs_reach(start, |&n| {
+            self.neighbours(n, diagonals)
+                .filter(|&n| predicate(n))
+                .collect::<Vec<_>>()
+        })
+        .collect()
     }
 
     /// Return a set of the indices reachable from a candidate starting point
@@ -552,17 +638,25 @@ impl<C> Matrix<C> {
     /// to implement a flood-filling algorithm. Since the indices are collected
     /// into a vector, they can later be used without keeping a reference on the
     /// matrix itself, e.g., to modify the matrix.
-    pub fn reachable<P>(
+    ///
+    /// The search is done using a depth first search (DFS) algorithm.
+    ///
+    /// # See also
+    ///
+    /// The [`bfs_reachable()`](`Self::bfs_reachable`) method performs a BFS search instead.
+    pub fn dfs_reachable<P>(
         &self,
         start: (usize, usize),
         diagonals: bool,
         mut predicate: P,
     ) -> BTreeSet<(usize, usize)>
     where
-        P: FnMut((usize, usize)) -> bool + Copy,
+        P: FnMut((usize, usize)) -> bool,
     {
-        bfs_reach(start, |&n| {
-            self.neighbours(n, diagonals).filter(move |&n| predicate(n))
+        dfs_reach(start, |&n| {
+            self.neighbours(n, diagonals)
+                .filter(|&n| predicate(n))
+                .collect::<Vec<_>>()
         })
         .collect()
     }
@@ -652,8 +746,17 @@ macro_rules! matrix {
 
 /// Format error encountered while attempting to build a Matrix.
 #[derive(Debug, Error)]
-#[error("matrix format error: {}", .0)]
-pub struct MatrixFormatError(String);
+pub enum MatrixFormatError {
+    /// Attempt to build a matrix containing an empty row
+    #[error("matrix rows cannot be empty")]
+    EmptyRow,
+    /// Attempt to access elements not inside the matrix
+    #[error("index does not point to data inside the matrix")]
+    WrongIndex,
+    /// Attempt to build a matrix or a row from data with the wrong length
+    #[error("provided data does not correspond to the expected length")]
+    WrongLength,
+}
 
 /// Row iterator returned by `iter()` on a matrix.
 pub struct RowIterator<'a, C> {
@@ -665,18 +768,14 @@ impl<'a, C> Iterator for RowIterator<'a, C> {
     type Item = &'a [C];
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.row < self.matrix.rows {
-            let r = Some(
-                &self.matrix.data
-                    [self.row * self.matrix.columns..(self.row + 1) * self.matrix.columns],
-            );
+        (self.row < self.matrix.rows).then(|| {
             self.row += 1;
-            r
-        } else {
-            None
-        }
+            &self.matrix.data[(self.row - 1) * self.matrix.columns..self.row * self.matrix.columns]
+        })
     }
 }
+
+impl<C> FusedIterator for RowIterator<'_, C> {}
 
 impl<'a, C> IntoIterator for &'a Matrix<C> {
     type IntoIter = RowIterator<'a, C>;
@@ -722,24 +821,4 @@ pub mod directions {
 
     /// Eight main directions with diagonals
     pub const DIRECTIONS_8: [(isize, isize); 8] = [NE, E, SE, S, SW, W, NW, N];
-}
-
-#[must_use]
-#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
-fn move_in_direction(
-    index: (usize, usize),
-    direction: (isize, isize),
-    rows: usize,
-    columns: usize,
-) -> Option<(usize, usize)> {
-    let (row, col) = index;
-    if row >= rows || col >= columns || direction == (0, 0) {
-        return None;
-    }
-    let (new_row, new_col) = (row as isize + direction.0, col as isize + direction.1);
-    if new_row < 0 || new_col < 0 {
-        return None;
-    }
-    let (new_row, new_col) = (new_row as usize, new_col as usize);
-    (new_row < rows && new_col < columns).then(|| (new_row as usize, new_col as usize))
 }

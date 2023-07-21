@@ -1,15 +1,14 @@
 //! Compute a shortest path using the [Dijkstra search
 //! algorithm](https://en.wikipedia.org/wiki/Dijkstra's_algorithm).
 
+use super::reverse_path;
+use crate::FxIndexMap;
 use indexmap::map::Entry::{Occupied, Vacant};
 use num_traits::Zero;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::hash::Hash;
 use std::usize;
-
-use super::reverse_path;
-use crate::directed::FxIndexMap;
 
 /// Compute a shortest path using the [Dijkstra search
 /// algorithm](https://en.wikipedia.org/wiki/Dijkstra's_algorithm).
@@ -20,7 +19,7 @@ use crate::directed::FxIndexMap;
 ///
 /// - `start` is the starting node.
 /// - `successors` returns a list of successors for a given node, along with the cost for moving
-/// from the node to the successor.
+/// from the node to the successor. This cost must be non-negative.
 /// - `success` checks whether the goal has been reached. It is not a node as some problems require
 /// a dynamic solution instead of a fixed node.
 ///
@@ -168,6 +167,7 @@ where
 ///
 /// The [`build_path`] function can be used to build a full path from the starting point to one
 /// of the reachable targets.
+#[allow(clippy::missing_panics_doc)]
 pub fn dijkstra_partial<N, C, FN, IN, FS>(
     start: &N,
     mut successors: FN,
@@ -185,7 +185,7 @@ where
         parents
             .iter()
             .skip(1)
-            .map(|(n, (p, c))| (n.clone(), (parents.get_index(*p).unwrap().0.clone(), *c)))
+            .map(|(n, (p, c))| (n.clone(), (parents.get_index(*p).unwrap().0.clone(), *c))) // unwrap() cannot fail
             .collect(),
         reached.map(|i| parents.get_index(i).unwrap().0.clone()),
     )
@@ -213,16 +213,10 @@ where
     let mut target_reached = None;
     while let Some(SmallestHolder { cost, index }) = to_see.pop() {
         let successors = {
-            let (node, &(_, c)) = parents.get_index(index).unwrap();
+            let (node, _) = parents.get_index(index).unwrap();
             if stop(node) {
                 target_reached = Some(index);
                 break;
-            }
-            // We may have inserted a node several time into the binary heap if we found
-            // a better way to access it. Ensure that we are currently dealing with the
-            // best path and discard the others.
-            if cost > c {
-                continue;
             }
             successors(node)
         };

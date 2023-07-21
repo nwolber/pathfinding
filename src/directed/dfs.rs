@@ -1,6 +1,10 @@
 //! Compute a path using the [depth-first search
 //! algorithm](https://en.wikipedia.org/wiki/Depth-first_search).
 
+use std::collections::HashSet;
+use std::hash::Hash;
+use std::iter::FusedIterator;
+
 /// Compute a path using the [depth-first search
 /// algorithm](https://en.wikipedia.org/wiki/Depth-first_search).
 /// The path starts from `start` up to a node for which `success` returns `true` is computed and
@@ -47,11 +51,7 @@ where
     FS: FnMut(&N) -> bool,
 {
     let mut path = vec![start];
-    if step(&mut path, &mut successors, &mut success) {
-        Some(path)
-    } else {
-        None
-    }
+    step(&mut path, &mut successors, &mut success).then_some(path)
 }
 
 fn step<N, FN, IN, FS>(path: &mut Vec<N>, successors: &mut FN, success: &mut FS) -> bool
@@ -76,4 +76,89 @@ where
         }
         false
     }
+}
+
+/// Visit all nodes that are reachable from a start node. The node will be visited
+/// in DFS order, starting from the `start` node and following the order returned
+/// by the `successors` function.
+///
+/// # Examples
+///
+/// The iterator stops when there are no new nodes to visit:
+///
+/// ```
+/// use pathfinding::prelude::dfs_reach;
+///
+/// let all_nodes = dfs_reach(3, |_| (1..=5)).collect::<Vec<_>>();
+/// assert_eq!(all_nodes, vec![3, 1, 2, 4, 5]);
+/// ```
+///
+/// The iterator can be used as a generator. Here are for examples
+/// the multiples of 2 and 3 smaller than 15 (although not in
+/// natural order but in the order they are discovered by the DFS
+/// algorithm):
+///
+/// ```
+/// use pathfinding::prelude::dfs_reach;
+///
+/// let mut it = dfs_reach(1, |&n| vec![n*2, n*3].into_iter().filter(|&x| x < 15)).skip(1);
+/// assert_eq!(it.next(), Some(2));  // 1*2
+/// assert_eq!(it.next(), Some(4));  // (1*2)*2
+/// assert_eq!(it.next(), Some(8));  // ((1*2)*2)*2
+/// assert_eq!(it.next(), Some(12)); // ((1*2)*2)*3
+/// assert_eq!(it.next(), Some(6));  // (1*2)*3
+/// assert_eq!(it.next(), Some(3));  // 1*3
+/// // (1*3)*2 == 6 which has been seen already
+/// assert_eq!(it.next(), Some(9));  // (1*3)*3
+/// ```
+pub fn dfs_reach<N, FN, IN>(start: N, successors: FN) -> DfsReachable<N, FN>
+where
+    N: Eq + Hash + Clone,
+    FN: FnMut(&N) -> IN,
+    IN: IntoIterator<Item = N>,
+{
+    let (to_see, mut seen) = (vec![start.clone()], HashSet::new());
+    seen.insert(start);
+    DfsReachable {
+        to_see,
+        seen,
+        successors,
+    }
+}
+
+/// Struct returned by [`dfs_reach`](crate::directed::dfs::dfs_reach).
+pub struct DfsReachable<N, FN> {
+    to_see: Vec<N>,
+    seen: HashSet<N>,
+    successors: FN,
+}
+
+impl<N, FN, IN> Iterator for DfsReachable<N, FN>
+where
+    N: Eq + Hash + Clone,
+    FN: FnMut(&N) -> IN,
+    IN: IntoIterator<Item = N>,
+{
+    type Item = N;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let n = self.to_see.pop()?;
+        let mut to_insert = Vec::new();
+        for s in (self.successors)(&n) {
+            if !self.seen.contains(&s) {
+                to_insert.push(s.clone());
+                self.seen.insert(s);
+            }
+        }
+        self.to_see.extend(to_insert.into_iter().rev());
+        Some(n)
+    }
+}
+
+impl<N, FN, IN> FusedIterator for DfsReachable<N, FN>
+where
+    N: Eq + Hash + Clone,
+    FN: FnMut(&N) -> IN,
+    IN: IntoIterator<Item = N>,
+{
 }

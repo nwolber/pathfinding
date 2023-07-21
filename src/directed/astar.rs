@@ -6,10 +6,11 @@ use num_traits::Zero;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 use std::hash::Hash;
+use std::iter::FusedIterator;
 use std::usize;
 
 use super::reverse_path;
-use crate::directed::FxIndexMap;
+use crate::FxIndexMap;
 
 /// Compute a shortest path using the [A* search
 /// algorithm](https://en.wikipedia.org/wiki/A*_search_algorithm).
@@ -20,7 +21,7 @@ use crate::directed::FxIndexMap;
 ///
 /// - `start` is the starting node.
 /// - `successors` returns a list of successors for a given node, along with the cost for moving
-/// from the node to the successor.
+/// from the node to the successor. This cost must be non-negative.
 /// - `heuristic` returns an approximation of the cost from a given node to the goal. The
 /// approximation must not be greater than the real cost, or a wrong shortest path may be returned.
 /// - `success` checks whether the goal has been reached. It is not a node as some problems require
@@ -38,14 +39,14 @@ use crate::directed::FxIndexMap;
 /// The first version uses an explicit type `Pos` on which the required traits are derived.
 ///
 /// ```
-/// use pathfinding::prelude::{absdiff, astar};
+/// use pathfinding::prelude::astar;
 ///
 /// #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 /// struct Pos(i32, i32);
 ///
 /// impl Pos {
 ///   fn distance(&self, other: &Pos) -> u32 {
-///     (absdiff(self.0, other.0) + absdiff(self.1, other.1)) as u32
+///     (self.0.abs_diff(other.0) + self.1.abs_diff(other.1)) as u32
 ///   }
 ///
 ///   fn successors(&self) -> Vec<(Pos, u32)> {
@@ -66,17 +67,18 @@ use crate::directed::FxIndexMap;
 /// and is thus shorter.
 ///
 /// ```
-/// use pathfinding::prelude::{absdiff, astar};
+/// use pathfinding::prelude::astar;
 ///
 /// static GOAL: (i32, i32) = (4, 6);
 /// let result = astar(&(1, 1),
 ///                    |&(x, y)| vec![(x+1,y+2), (x+1,y-2), (x-1,y+2), (x-1,y-2),
 ///                                   (x+2,y+1), (x+2,y-1), (x-2,y+1), (x-2,y-1)]
 ///                               .into_iter().map(|p| (p, 1)),
-///                    |&(x, y)| absdiff(x, GOAL.0) + absdiff(y, GOAL.1),
+///                    |&(x, y)| (GOAL.0.abs_diff(x) + GOAL.1.abs_diff(y)) / 3,
 ///                    |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").1, 4);
 /// ```
+#[allow(clippy::missing_panics_doc)]
 pub fn astar<N, C, FN, IN, FH, FS>(
     start: &N,
     mut successors: FN,
@@ -101,7 +103,7 @@ where
     parents.insert(start.clone(), (usize::max_value(), Zero::zero()));
     while let Some(SmallestCostHolder { cost, index, .. }) = to_see.pop() {
         let successors = {
-            let (node, &(_, c)) = parents.get_index(index).unwrap();
+            let (node, &(_, c)) = parents.get_index(index).unwrap(); // Cannot fail
             if success(node) {
                 let path = reverse_path(&parents, |&(p, _)| p, index);
                 return Some((path, cost));
@@ -166,6 +168,7 @@ where
 ///
 /// Each path comprises both the start and an end node. Note that while every path shares the same
 /// start node, different paths may have different end nodes.
+#[allow(clippy::missing_panics_doc)]
 pub fn astar_bag<N, C, FN, IN, FH, FS>(
     start: &N,
     mut successors: FN,
@@ -197,13 +200,11 @@ where
         ..
     }) = to_see.pop()
     {
-        if let Some(min_cost) = min_cost {
-            if estimated_cost > min_cost {
-                break;
-            }
+        if matches!(min_cost, Some(min_cost) if estimated_cost > min_cost) {
+            break;
         }
         let successors = {
-            let (node, &(_, c)) = parents.get_index(index).unwrap();
+            let (node, &(_, c)) = parents.get_index(index).unwrap(); // Cannot fail
             if success(node) {
                 min_cost = Some(cost);
                 sinks.insert(index);
@@ -344,10 +345,7 @@ impl<N: Clone + Eq + Hash> AstarSolution<N> {
         loop {
             let ps = match self.current.last() {
                 None => self.sinks.clone(),
-                Some(last) => {
-                    let &top = last.last().unwrap();
-                    self.parents(top).clone()
-                }
+                Some(last) => self.parents(*last.last().unwrap()).clone(),
             };
             if ps.is_empty() {
                 break;
@@ -392,3 +390,5 @@ impl<N: Clone + Eq + Hash> Iterator for AstarSolution<N> {
         Some(path)
     }
 }
+
+impl<N: Clone + Eq + Hash> FusedIterator for AstarSolution<N> {}

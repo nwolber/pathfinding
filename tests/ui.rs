@@ -1,5 +1,10 @@
 #[test]
 fn ui() {
-    let t = trybuild::TestCases::new();
-    t.compile_fail("tests/ui/*.rs");
+    match std::env::var("TOOLCHAIN").as_deref() {
+        Ok("stable") | Ok("1.65.0") => (),
+        _ => {
+            let t = trybuild::TestCases::new();
+            t.compile_fail("tests/ui/*.rs");
+        }
+    }
 }

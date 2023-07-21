@@ -1,7 +1,9 @@
+use itertools::Itertools;
 use lazy_static::lazy_static;
-use pathfinding::prelude::{absdiff, astar, idastar};
+use pathfinding::prelude::{astar, idastar};
 use rand::prelude::*;
 use rand::rngs::OsRng;
+use std::thread;
 use std::time::Instant;
 
 #[cfg(test)]
@@ -10,12 +12,12 @@ const SIDE: u8 = 3;
 const SIDE: u8 = 4;
 const LIMIT: usize = (SIDE * SIDE) as usize;
 
-#[allow(clippy::derive_hash_xor_eq)]
+#[allow(clippy::derived_hash_with_manual_eq)]
 #[derive(Clone, Debug, Hash)]
 struct Game {
     positions: [u8; LIMIT], // Correct position of piece at every index
     hole_idx: u8,           // Current index of the hole
-    weight: u8,             // Current some of pieces Manhattan distances
+    weight: u8,             // Current sum of pieces Manhattan distances
 }
 
 impl PartialEq for Game {
@@ -82,7 +84,7 @@ impl Game {
             Self::x(self.positions[idx as usize]),
             Self::y(self.positions[idx as usize]),
         );
-        absdiff(actual_x, correct_x) + absdiff(actual_y, correct_y)
+        actual_x.abs_diff(correct_x) + actual_y.abs_diff(correct_y)
     }
 
     fn solved(&self) -> bool {
@@ -121,12 +123,7 @@ impl Game {
     }
 
     fn from_array(positions: [u8; LIMIT]) -> Game {
-        let hole_idx = positions
-            .iter()
-            .enumerate()
-            .find(|&(_, &n)| n == 0)
-            .unwrap()
-            .0 as u8;
+        let hole_idx = positions.iter().find_position(|&&n| n == 0).unwrap().0 as u8;
         let mut game = Game {
             positions,
             hole_idx,
@@ -141,8 +138,8 @@ impl Game {
 
     fn shuffled() -> Game {
         let mut rng = OsRng;
+        let mut positions = Self::default().positions;
         loop {
-            let mut positions = Self::default().positions;
             positions.shuffle(&mut rng);
             let game = Self::from_array(positions);
             if game.is_solvable() {
@@ -166,32 +163,29 @@ fn test() {
 
 fn main() {
     let b = Game::shuffled();
-    println!("{:?}", b);
+    println!("{b:?}");
     assert!(b.is_solvable());
-    let idastar_result = {
-        let before = Instant::now();
-        let result = idastar(&b, Game::successors, |b| b.weight, Game::solved).unwrap();
-        let elapsed = before.elapsed();
-        println!(
-            "idastar: {} moves in {}.{:03} seconds",
-            result.1,
-            elapsed.as_secs(),
-            elapsed.subsec_millis()
-        );
-        result
-    };
-    let astar_result = {
-        let before = Instant::now();
-        let result = astar(&b, Game::successors, |b| b.weight, Game::solved).unwrap();
-        let elapsed = before.elapsed();
-        println!(
-            "astar: {} moves in {}.{:03} seconds",
-            result.1,
-            elapsed.as_secs(),
-            elapsed.subsec_millis()
-        );
-        result
-    };
-    assert_eq!(idastar_result.1, astar_result.1);
-    assert!(idastar_result.1 >= b.weight);
+    let start = Instant::now();
+    let (astar_result, idastar_result) = thread::scope(|s| {
+        let idastar_handle = s.spawn({
+            || {
+                let result = idastar(&b, Game::successors, |b| b.weight, Game::solved).unwrap();
+                println!("idastar: {} moves in {:.3?}", result.1, start.elapsed(),);
+                assert!(result.0.last().unwrap().weight == 0);
+                result.1
+            }
+        });
+        (
+            {
+                let result = astar(&b, Game::successors, |b| b.weight, Game::solved).unwrap();
+                println!("astar: {} moves in {:.3?}", result.1, start.elapsed(),);
+                assert!(result.0.last().unwrap().weight == 0);
+                result.1
+            },
+            idastar_handle.join().unwrap(),
+        )
+    });
+    println!("Total execution time: {:.3?}", start.elapsed());
+    assert_eq!(idastar_result, astar_result);
+    assert!(idastar_result >= b.weight);
 }

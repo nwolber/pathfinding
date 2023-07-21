@@ -2,7 +2,7 @@
 //! algorithm](https://en.wikipedia.org/wiki/Fringe_search).
 
 use super::reverse_path;
-use crate::directed::FxIndexMap;
+use crate::FxIndexMap;
 use indexmap::map::Entry::{Occupied, Vacant};
 use num_traits::{Bounded, Zero};
 use std::collections::VecDeque;
@@ -19,7 +19,7 @@ use std::usize;
 ///
 /// - `start` is the starting node.
 /// - `successors` returns a list of successors for a given node, along with the cost for moving
-/// from the node to the successor.
+/// from the node to the successor. This cost must be non-negative.
 /// - `heuristic` returns an approximation of the cost from a given node to the goal. The
 /// approximation must not be greater than the real cost, or a wrong shortest path may be returned.
 /// - `success` checks whether the goal has been reached. It is not a node as some problems require
@@ -37,14 +37,14 @@ use std::usize;
 /// The first version uses an explicit type `Pos` on which the required traits are derived.
 ///
 /// ```
-/// use pathfinding::prelude::{absdiff, fringe};
+/// use pathfinding::prelude::fringe;
 ///
 /// #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 /// struct Pos(i32, i32);
 ///
 /// impl Pos {
 ///   fn distance(&self, other: &Pos) -> u32 {
-///     (absdiff(self.0, other.0) + absdiff(self.1, other.1)) as u32
+///     (self.0.abs_diff(other.0) + self.1.abs_diff(other.1)) as u32
 ///   }
 ///
 ///   fn successors(&self) -> Vec<(Pos, u32)> {
@@ -67,17 +67,18 @@ use std::usize;
 /// and is thus shorter.
 ///
 /// ```
-/// use pathfinding::prelude::{absdiff, fringe};
+/// use pathfinding::prelude::fringe;
 ///
 /// static GOAL: (i32, i32) = (4, 6);
 /// let result = fringe(&(1, 1),
 ///                     |&(x, y)| vec![(x+1,y+2), (x+1,y-2), (x-1,y+2), (x-1,y-2),
 ///                                    (x+2,y+1), (x+2,y-1), (x-2,y+1), (x-2,y-1)]
 ///                                .into_iter().map(|p| (p, 1)),
-///                     |&(x, y)| (absdiff(x, GOAL.0) + absdiff(y, GOAL.1)) / 3,
+///                     |&(x, y)| (GOAL.0.abs_diff(x) + GOAL.1.abs_diff(y)) / 3,
 ///                     |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").1, 4);
 /// ```
+#[allow(clippy::missing_panics_doc)]
 pub fn fringe<N, C, FN, IN, FH, FS>(
     start: &N,
     mut successors: FN,
@@ -106,7 +107,7 @@ where
         let mut fmin = C::max_value();
         while let Some(i) = now.pop_front() {
             let (g, successors) = {
-                let (node, &(_, g)) = parents.get_index(i).unwrap();
+                let (node, &(_, g)) = parents.get_index(i).unwrap(); // Cannot fail
                 let f = g + heuristic(node);
                 if f > flimit {
                     if f < fmin {

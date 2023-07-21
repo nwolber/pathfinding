@@ -12,7 +12,7 @@ use num_traits::Zero;
 ///
 /// - `start` is the starting node.
 /// - `successors` returns a list of successors for a given node, along with the cost for moving
-/// from the node to the successor.
+/// from the node to the successor. This cost must be non-negative.
 /// - `heuristic` returns an approximation of the cost from a given node to the goal. The
 /// approximation must not be greater than the real cost, or a wrong shortest path may be returned.
 /// - `success` checks whether the goal has been reached. It is not a node as some problems require
@@ -30,14 +30,14 @@ use num_traits::Zero;
 /// The first version uses an explicit type `Pos` on which the required traits are derived.
 ///
 /// ```
-/// use pathfinding::prelude::{absdiff, idastar};
+/// use pathfinding::prelude::idastar;
 ///
 /// #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 /// struct Pos(i32, i32);
 ///
 /// impl Pos {
 ///   fn distance(&self, other: &Pos) -> u32 {
-///     (absdiff(self.0, other.0) + absdiff(self.1, other.1)) as u32
+///     (self.0.abs_diff(other.0) + self.1.abs_diff(other.1)) as u32
 ///   }
 ///
 ///   fn successors(&self) -> Vec<(Pos, u32)> {
@@ -58,14 +58,14 @@ use num_traits::Zero;
 /// and is thus shorter.
 ///
 /// ```
-/// use pathfinding::prelude::{absdiff, idastar};
+/// use pathfinding::prelude::idastar;
 ///
 /// static GOAL: (i32, i32) = (4, 6);
 /// let result = idastar(&(1, 1),
 ///                    |&(x, y)| vec![(x+1,y+2), (x+1,y-2), (x-1,y+2), (x-1,y-2),
 ///                                   (x+2,y+1), (x+2,y-1), (x-2,y+1), (x-2,y-1)]
 ///                               .into_iter().map(|p| (p, 1)),
-///                    |&(x, y)| (absdiff(x, GOAL.0) + absdiff(y, GOAL.1)) / 3,
+///                    |&(x, y)| (GOAL.0.abs_diff(x) + GOAL.1.abs_diff(y)) / 3,
 ///                    |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").1, 4);
 /// ```
@@ -140,15 +140,13 @@ where
         let mut neighbs = successors(start)
             .into_iter()
             .filter_map(|(n, c)| {
-                if path.contains(&n) {
-                    None
-                } else {
+                (!path.contains(&n)).then(|| {
                     let h = heuristic(&n);
-                    Some((n, c, c + h))
-                }
+                    (n, c, c + h)
+                })
             })
             .collect::<Vec<_>>();
-        neighbs.sort_unstable_by_key(|&(_, _, c)| c);
+        neighbs.sort_unstable_by(|(_, _, c1), (_, _, c2)| c1.cmp(c2));
         neighbs
     };
     let mut min = None;
@@ -165,8 +163,5 @@ where
         }
         path.pop();
     }
-    match min {
-        Some(m) => Path::Minimum(m),
-        None => Path::Impossible,
-    }
+    min.map_or(Path::Impossible, Path::Minimum)
 }

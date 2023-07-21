@@ -31,6 +31,41 @@ fn one_point_grid() {
 }
 
 #[test]
+fn grid_iter_is_fused() {
+    let mut g = Grid::new(1, 1);
+    g.fill();
+    let mut it = g.iter();
+    assert!(it.next().is_some());
+    for _ in 0..3 {
+        assert!(it.next().is_none());
+    }
+}
+
+#[test]
+fn grid_into_iter_is_fused() {
+    let mut g = Grid::new(1, 1);
+    g.fill();
+    let mut it = g.into_iter();
+    assert!(it.next().is_some());
+    for _ in 0..3 {
+        assert!(it.next().is_none());
+    }
+}
+
+#[test]
+fn grid_edges_iter_is_fused() {
+    let mut g = Grid::new(2, 2);
+    g.fill();
+    let mut it = g.edges();
+    for _ in 0..4 {
+        assert!(it.next().is_some());
+    }
+    for _ in 0..3 {
+        assert!(it.next().is_none());
+    }
+}
+
+#[test]
 fn diagonal_mode() {
     let mut g = Grid::new(3, 3);
     assert_eq!(g.iter().count(), 0);
@@ -273,23 +308,65 @@ fn add_borders_flat() {
 }
 
 #[test]
-fn reachable() {
+fn bfs_reachable() {
     let mut g = vec![(1, 7), (1, 8), (3, 4), (2, 7), (0, 6)]
         .into_iter()
         .collect::<Grid>();
-    assert_eq!(g.reachable((1, 8), |_| true).len(), 3);
+    assert_eq!(g.bfs_reachable((1, 8), |_| true).len(), 3);
+    assert_eq!(g.bfs_reachable((1, 8), |_| false).len(), 1);
+    let mut counter = 1;
     assert_eq!(
-        g.reachable((1, 8), |_| true)
+        g.bfs_reachable((1, 8), |_| {
+            counter += 1;
+            true
+        })
+        .len(),
+        3
+    );
+    assert_eq!(counter, 5);
+    assert_eq!(
+        g.bfs_reachable((1, 8), |_| true)
             .into_iter()
             .collect::<Vec<_>>(),
         vec![(1, 7), (1, 8), (2, 7)]
     );
-    assert_eq!(g.reachable((3, 4), |_| true).len(), 1);
-    assert_eq!(g.reachable((0, 8), |_| true).len(), 1);
+    assert_eq!(g.bfs_reachable((3, 4), |_| true).len(), 1);
+    assert_eq!(g.bfs_reachable((0, 8), |_| true).len(), 1);
     g.enable_diagonal_mode();
-    assert_eq!(g.reachable((1, 8), |_| true).len(), 4);
-    assert_eq!(g.reachable((3, 4), |_| true).len(), 1);
-    assert_eq!(g.reachable((0, 8), |_| true).len(), 1);
+    assert_eq!(g.bfs_reachable((1, 8), |_| true).len(), 4);
+    assert_eq!(g.bfs_reachable((3, 4), |_| true).len(), 1);
+    assert_eq!(g.bfs_reachable((0, 8), |_| true).len(), 1);
+}
+
+#[test]
+fn dfs_reachable() {
+    let mut g = vec![(1, 7), (1, 8), (3, 4), (2, 7), (0, 6)]
+        .into_iter()
+        .collect::<Grid>();
+    assert_eq!(g.dfs_reachable((1, 8), |_| true).len(), 3);
+    assert_eq!(g.bfs_reachable((1, 8), |_| false).len(), 1);
+    let mut counter = 1;
+    assert_eq!(
+        g.dfs_reachable((1, 8), |_| {
+            counter += 1;
+            true
+        })
+        .len(),
+        3
+    );
+    assert_eq!(counter, 5);
+    assert_eq!(
+        g.dfs_reachable((1, 8), |_| true)
+            .into_iter()
+            .collect::<Vec<_>>(),
+        vec![(1, 7), (1, 8), (2, 7)]
+    );
+    assert_eq!(g.dfs_reachable((3, 4), |_| true).len(), 1);
+    assert_eq!(g.dfs_reachable((0, 8), |_| true).len(), 1);
+    g.enable_diagonal_mode();
+    assert_eq!(g.dfs_reachable((1, 8), |_| true).len(), 4);
+    assert_eq!(g.dfs_reachable((3, 4), |_| true).len(), 1);
+    assert_eq!(g.dfs_reachable((0, 8), |_| true).len(), 1);
 }
 
 #[test]
@@ -413,7 +490,7 @@ fn debug() {
     .into_iter()
     .collect::<Grid>();
     assert_eq!(
-        format!("{:?}", g),
+        format!("{g:?}"),
         String::from(
             "\
 #####
@@ -424,7 +501,7 @@ fn debug() {
         )
     );
     assert_eq!(
-        format!("{:#?}", g),
+        format!("{g:#?}"),
         String::from(
             "\
 ▓▓▓▓▓
@@ -434,4 +511,49 @@ fn debug() {
 ▓▓▓▓▓"
         )
     );
+}
+
+#[test]
+fn from_matrix() {
+    let m = pathfinding::prelude::Matrix::square_from_vec(vec![
+        true, true, true, false, false, false, true, false, true,
+    ])
+    .unwrap();
+    let g = Grid::from(&m);
+    let g2 = Grid::from(m);
+    assert_eq!(g, g2);
+    let mut vertices = g.into_iter().collect::<Vec<_>>();
+    vertices.sort_unstable();
+    assert_eq!(vertices, vec![(0, 0), (0, 2), (1, 0), (2, 0), (2, 2)]);
+}
+
+#[test]
+fn test_equality() {
+    let g = [
+        (0, 0),
+        (1, 0),
+        (2, 0),
+        (3, 0),
+        (4, 0),
+        (0, 1),
+        (4, 1),
+        (0, 2),
+        (4, 2),
+        (0, 3),
+        (4, 3),
+        (0, 4),
+        (1, 4),
+        (2, 4),
+        (3, 4),
+        (4, 4),
+    ]
+    .into_iter()
+    .collect::<Grid>();
+    assert_eq!(g, g);
+    let mut g2 = g.clone();
+    assert_eq!(g, g2);
+    g2.remove_vertex((0, 0));
+    assert_ne!(g, g2);
+    g2.add_vertex((0, 0));
+    assert_eq!(g, g2);
 }

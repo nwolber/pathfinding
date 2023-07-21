@@ -10,9 +10,13 @@ use std::mem;
 /// - `successors` returns a list of successors for a given node, including possibly
 ///    nodes that were not present in `roots`.
 ///
-/// The function returns either `Ok` with an acceptable topological order of nodes
-/// given as roots or discovered, or `Err` with a node belonging to a cycle. In the
-/// latter case, the strongly connected set can then be found using the
+/// The function returns an acceptable topological order of nodes given as roots or
+/// discovered, or an error if a cycle is detected.
+///
+/// # Errors
+///
+/// If a cycle is found, `Err(n)` is returned with `n` being an arbitrary node involved in a cycle.
+/// In this case case, the strongly connected set can then be found using the
 /// [`strongly_connected_component`](super::strongly_connected_components::strongly_connected_component)
 /// function, or if only one of the loops is needed the [`bfs_loop`](super::bfs::bfs_loop) function
 /// can be used instead to identify one of the shortest loops involving this node.
@@ -79,7 +83,7 @@ where
     let mut temp = HashSet::new();
     let mut sorted = VecDeque::with_capacity(roots.len());
     let mut roots: HashSet<N> = roots.iter().cloned().collect::<HashSet<_>>();
-    while let Some(node) = roots.iter().cloned().next() {
+    while let Some(node) = roots.iter().next().cloned() {
         temp.clear();
         visit(
             &node,
@@ -137,18 +141,18 @@ where
 /// group. Also, the list of `nodes` must be exhaustive, new nodes must not be
 /// returned by the `successors` function.
 ///
-/// The function returns either `Ok` with a valid list of groups, or `Err` with
-/// a (groups, remaining) tuple containing a (possibly empty) partial list of
-/// groups, and a list of remaining nodes that could not be grouped due to
-/// cycles. In the error case, the strongly connected set(s) can then be found
-/// using the
+/// The function returns a collection of groups if there are no cycles in the
+/// graph and an error otherwise.
+///
+/// # Errors
+///
+/// A tuple `(groups, remaining)` containing a (possibly empty) partial list of
+/// groups, and a list of remaining nodes that could not be grouped due to cycles.
+/// In this case, the strongly connected set(s) can then be found using the
 /// [`strongly_connected_components`](super::strongly_connected_components::strongly_connected_components)
 /// function on the list of remaining nodes.
-///
-/// The current implementation uses a variation of [Kahn's
-/// algorithm](https://en.wikipedia.org/wiki/Topological_sorting#Kahn's_algorithm),
-/// and runs in O(|V| + |E|) time.
 #[allow(clippy::type_complexity)]
+#[allow(clippy::missing_panics_doc)]
 pub fn topological_sort_into_groups<N, FN, IN>(
     nodes: &[N],
     mut successors: FN,
@@ -163,28 +167,22 @@ where
     }
     let mut succs_map = HashMap::<N, HashSet<N>>::with_capacity(nodes.len());
     let mut preds_map = HashMap::<N, usize>::with_capacity(nodes.len());
-    for node in nodes.iter() {
+    for node in nodes {
         succs_map.insert(node.clone(), successors(node).into_iter().collect());
         preds_map.insert(node.clone(), 0);
     }
     for succs in succs_map.values() {
-        for succ in succs.iter() {
-            *preds_map.get_mut(succ).unwrap() += 1;
+        for succ in succs {
+            *preds_map.get_mut(succ).unwrap() += 1; // Cannot fail
         }
     }
     let mut groups = Vec::<Vec<N>>::new();
     let mut prev_group: Vec<N> = preds_map
         .iter()
-        .filter_map(|(node, &num_preds)| {
-            if num_preds == 0 {
-                Some(node.clone())
-            } else {
-                None
-            }
-        })
+        .filter_map(|(node, &num_preds)| (num_preds == 0).then(|| node.clone()))
         .collect();
     if prev_group.is_empty() {
-        let remaining: Vec<N> = preds_map.into_iter().map(|(node, _)| node).collect();
+        let remaining: Vec<N> = preds_map.into_keys().collect();
         return Err((Vec::new(), remaining));
     }
     for node in &prev_group {
@@ -195,18 +193,18 @@ where
         for node in &prev_group {
             for succ in &succs_map[node] {
                 {
-                    let num_preds = preds_map.get_mut(succ).unwrap();
+                    let num_preds = preds_map.get_mut(succ).unwrap(); // Cannot fail
                     *num_preds -= 1;
                     if *num_preds > 0 {
                         continue;
                     }
                 }
-                next_group.push(preds_map.remove_entry(succ).unwrap().0);
+                next_group.push(preds_map.remove_entry(succ).unwrap().0); // Cannot fail
             }
         }
         groups.push(mem::replace(&mut prev_group, next_group));
         if prev_group.is_empty() {
-            let remaining: Vec<N> = preds_map.into_iter().map(|(node, _)| node).collect();
+            let remaining: Vec<N> = preds_map.into_keys().collect();
             return Err((groups, remaining));
         }
     }

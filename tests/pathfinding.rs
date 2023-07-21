@@ -58,11 +58,7 @@ mod ex1 {
     #[test]
     fn dfs_ok() {
         for target in 0..9 {
-            match dfs(
-                1,
-                |n| successors(n).into_iter().map(|(v, _)| v),
-                |&node| node == target,
-            ) {
+            match dfs(1, |n| successors(n).map(|(v, _)| v), |&node| node == target) {
                 None => assert_eq!(expected(target), None, "path not found"),
                 Some(path) => assert!(
                     expected(target).expect("non-existing path found").0.len() <= path.len()
@@ -83,11 +79,33 @@ mod ex1 {
 
     #[test]
     fn bfs_loops() {
-        let successors = |n: &u8| successors(n).into_iter().map(|(n, _)| n);
+        let successors = |n: &u8| successors(n).map(|(n, _)| n);
         assert_eq!(bfs_loop(&0, successors), Some(vec![0, 1, 0]));
         assert_eq!(bfs_loop(&1, successors), Some(vec![1, 0, 1]));
         assert_eq!(bfs_loop(&2, successors), Some(vec![2, 5, 1, 0, 2]));
         assert_eq!(bfs_loop(&8, successors), None);
+    }
+
+    #[test]
+    fn bfs_reach_is_fused() {
+        let mut it = bfs_reach(1, |&n| vec![n * 2, n * 3].into_iter().filter(|&x| x < 15)).skip(1);
+        for _ in 0..7 {
+            assert!(it.next().is_some());
+        }
+        for _ in 0..3 {
+            assert!(it.next().is_none());
+        }
+    }
+
+    #[test]
+    fn dfs_reach_is_fused() {
+        let mut it = dfs_reach(1, |&n| vec![n * 2, n * 3].into_iter().filter(|&x| x < 15)).skip(1);
+        for _ in 0..7 {
+            assert!(it.next().is_some());
+        }
+        for _ in 0..3 {
+            assert!(it.next().is_none());
+        }
     }
 }
 
@@ -117,18 +135,12 @@ mod ex2 {
     fn successors(&(x, y): &(usize, usize)) -> Vec<((usize, usize), usize)> {
         vec![(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
             .into_iter()
-            .filter_map(|(nx, ny)| {
-                if OPEN[ny][nx] {
-                    Some(((nx, ny), 1))
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(nx, ny)| OPEN[ny][nx].then_some(((nx, ny), 1)))
             .collect()
     }
 
     fn distance(&(x1, y1): &(usize, usize), &(x2, y2): &(usize, usize)) -> usize {
-        absdiff(x1, x2) + absdiff(y1, y2)
+        x1.abs_diff(x2) + y1.abs_diff(y2)
     }
 
     #[test]
@@ -192,6 +204,19 @@ mod ex2 {
             .iter()
             .all(|path| path.iter().all(|&(nx, ny)| OPEN[ny][nx])));
         assert_eq!(counter, 18);
+    }
+
+    #[test]
+    fn astar_bag_iter_is_fused() {
+        const GOAL: (usize, usize) = (7, 3);
+        let (mut it, _) =
+            astar_bag(&(2, 3), successors, |n| distance(n, &GOAL), |n| n == &GOAL).unwrap();
+        for _ in 0..3 {
+            assert!(it.next().is_some());
+        }
+        for _ in 0..3 {
+            assert!(it.next().is_none());
+        }
     }
 
     #[test]

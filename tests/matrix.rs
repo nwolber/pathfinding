@@ -1,6 +1,6 @@
 #![cfg(test)]
 
-use pathfinding::{matrix, matrix::Matrix, utils::absdiff};
+use pathfinding::{matrix, matrix::Matrix};
 
 #[test]
 fn sm() {
@@ -19,6 +19,20 @@ fn sm() {
     assert_eq!(m[(0, 1)], 33);
     assert_eq!(m[(1, 0)], 33);
     assert_eq!(m[(1, 1)], 33);
+}
+
+#[test]
+fn from_fn() {
+    let m = Matrix::from_fn(2, 3, |(row, column)| 10 * row + column);
+    assert_eq!(m.rows, 2);
+    assert_eq!(m.columns, 3);
+    assert!(!m.is_square());
+    assert_eq!(m[(0, 0)], 0);
+    assert_eq!(m[(0, 1)], 1);
+    assert_eq!(m[(0, 2)], 2);
+    assert_eq!(m[(1, 0)], 10);
+    assert_eq!(m[(1, 1)], 11);
+    assert_eq!(m[(1, 2)], 12);
 }
 
 #[test]
@@ -356,8 +370,8 @@ fn neighbours() {
                 let mut manual = Vec::new();
                 for rr in 0..3 {
                     for cc in 0..3 {
-                        let dr = absdiff(r, rr);
-                        let dc = absdiff(c, cc);
+                        let dr = r.abs_diff(rr);
+                        let dc = c.abs_diff(cc);
                         if dr + dc == 1 || (diagonal && dr == 1 && dc == 1) {
                             manual.push((rr, cc));
                         }
@@ -380,20 +394,91 @@ fn empty_neighbours() {
 }
 
 #[test]
-fn reachable() {
+fn bfs_reachable() {
     let m = matrix![[0, 1, 2], [3, 4, 5], [6, 7, 8]];
 
-    let indices = m.reachable((1, 0), false, |n| m[n] % 4 != 0);
+    let indices = m.bfs_reachable((1, 0), false, |n| m[n] % 4 != 0);
     assert_eq!(
         indices.into_iter().collect::<Vec<_>>(),
         vec![(1, 0), (2, 0), (2, 1)]
     );
 
-    let indices = m.reachable((1, 0), true, |n| m[n] % 4 != 0);
+    let indices = m.bfs_reachable((1, 0), true, |n| m[n] % 4 != 0);
     assert_eq!(
         indices.into_iter().collect::<Vec<_>>(),
         vec![(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)]
     );
+}
+
+#[test]
+fn bfs_reachable_mut() {
+    let m = matrix![[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+
+    let mut counter = 0;
+    let indices = m.bfs_reachable((1, 0), false, |n| {
+        counter += 1;
+        m[n] % 4 != 0
+    });
+    assert_eq!(
+        indices.into_iter().collect::<Vec<_>>(),
+        vec![(1, 0), (2, 0), (2, 1)]
+    );
+    assert_eq!(counter, 8);
+
+    let mut counter = 0;
+    let indices = m.bfs_reachable((1, 0), true, |n| {
+        counter += 1;
+        m[n] % 4 != 0
+    });
+    assert_eq!(
+        indices.into_iter().collect::<Vec<_>>(),
+        vec![(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)]
+    );
+    assert_eq!(counter, 26);
+}
+
+#[test]
+fn dfs_reachable() {
+    let m = matrix![[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+
+    let indices = m.dfs_reachable((1, 0), false, |n| m[n] % 4 != 0);
+    assert_eq!(
+        indices.into_iter().collect::<Vec<_>>(),
+        vec![(1, 0), (2, 0), (2, 1)]
+    );
+
+    let indices = m.dfs_reachable((1, 0), true, |n| m[n] % 4 != 0);
+    assert_eq!(
+        indices.into_iter().collect::<Vec<_>>(),
+        vec![(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)]
+    );
+}
+
+#[test]
+fn dfs_reachable_mut() {
+    let m = matrix![[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+
+    let mut counter = 0;
+    let indices = m.dfs_reachable((1, 0), false, |n| {
+        counter += 1;
+        m[n] % 4 != 0
+    });
+    assert_eq!(
+        indices.into_iter().collect::<Vec<_>>(),
+        vec![(1, 0), (2, 0), (2, 1)]
+    );
+    assert_eq!(counter, 8);
+
+    let mut counter = 0;
+    let indices = m.dfs_reachable((1, 0), true, |n| {
+        counter += 1;
+        m[n] % 4 != 0
+    });
+    assert_eq!(
+        indices.into_iter().collect::<Vec<_>>(),
+        vec![(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)]
+    );
+    assert_eq!(counter, 26);
 }
 
 #[test]
@@ -457,10 +542,22 @@ fn into_iter() {
 }
 
 #[test]
-fn indices() {
+fn into_iter_is_fused() {
+    let m = matrix![[0, 1, 2], [2, 1, 0], [1, 0, 2]];
+    let mut it = m.iter();
+    for _ in 0..3 {
+        assert!(it.next().is_some());
+    }
+    for _ in 0..3 {
+        assert!(it.next().is_none());
+    }
+}
+
+#[test]
+fn keys() {
     let m = matrix![[0, 1, 2], [2, 1, 0]];
     assert_eq!(
-        m.indices().collect::<Vec<_>>(),
+        m.keys().collect::<Vec<_>>(),
         vec![(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
     );
 }
@@ -525,4 +622,39 @@ fn in_direction() {
         m.in_direction((4, 4), (0, 3)).collect::<Vec<_>>(),
         vec![(4, 7)]
     );
+}
+
+#[test]
+fn map() {
+    let m = Matrix::new(3, 3, 10);
+    let m = m.map({
+        let mut counter = 0;
+        move |x| {
+            counter += 1;
+            x + counter
+        }
+    });
+    assert_eq!(
+        m,
+        Matrix::square_from_vec(vec![11, 12, 13, 14, 15, 16, 17, 18, 19]).unwrap()
+    );
+}
+
+#[test]
+fn items() {
+    let m = matrix![[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+
+    assert_eq!(m.items().find(|&(_, val)| val == &3), Some(((1, 0), &3)));
+}
+
+#[test]
+fn items_mut() {
+    let mut m = matrix![[0, 1, 2], [3, 4, 5], [6, 7, 8]];
+    for ((r, c), v) in m.items_mut() {
+        if r == 2 && c == 1 {
+            *v *= 2;
+        }
+    }
+
+    assert_eq!(&*m, &[0, 1, 2, 3, 4, 5, 6, 14, 8]);
 }

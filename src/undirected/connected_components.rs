@@ -1,21 +1,41 @@
 //! Separate components of an undirected graph into disjoint sets.
 
-use itertools::Itertools;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::iter::once;
 use std::usize;
 
-/// Lookup entries until we get the same value as the index, with
-/// path halving. Adding a new entry to the table consists
-/// into pushing the table length.
-fn get_and_redirect(table: &mut Vec<usize>, mut idx: usize) -> usize {
-    while idx != table[idx] {
-        table[idx] = table[table[idx]];
-        idx = table[idx];
+fn join(table: &mut [usize], mut rx: usize, mut ry: usize) -> usize {
+    while table[rx] != table[ry] {
+        if table[rx] > table[ry] {
+            if rx == table[rx] {
+                table[rx] = table[ry];
+                break;
+            }
+            let z = table[rx];
+            table[rx] = table[ry];
+            rx = z;
+        } else {
+            if ry == table[ry] {
+                table[ry] = table[rx];
+                break;
+            }
+            let z = table[ry];
+            table[ry] = table[rx];
+            ry = z;
+        }
     }
-    idx
+    table[rx]
+}
+
+fn find(table: &mut [usize], mut x: usize) -> usize {
+    while table[x] != x {
+        let t = table[x];
+        table[x] = table[table[x]];
+        x = t;
+    }
+    x
 }
 
 /// Separate components of an undirected graph into disjoint sets.
@@ -42,7 +62,7 @@ pub fn separate_components<N>(groups: &[Vec<N>]) -> (HashMap<&N, usize>, Vec<usi
 where
     N: Hash + Eq,
 {
-    let mut table = (0..groups.len()).collect_vec();
+    let mut table = (0..groups.len()).collect::<Vec<_>>();
     let mut indices = HashMap::new();
     for (mut group_index, group) in groups.iter().enumerate() {
         if group.is_empty() {
@@ -51,8 +71,7 @@ where
         for element in group {
             match indices.entry(element) {
                 Occupied(e) => {
-                    table[group_index] = get_and_redirect(&mut table, *e.get());
-                    group_index = table[group_index];
+                    group_index = join(&mut table, group_index, *e.get());
                 }
                 Vacant(e) => {
                     e.insert(group_index);
@@ -61,13 +80,12 @@ where
         }
     }
     for group_index in indices.values_mut() {
-        *group_index = get_and_redirect(&mut table, *group_index);
+        *group_index = find(&mut table, *group_index);
     }
+    // Flatten the table.
     for group_index in 0..groups.len() {
-        if table[group_index] != usize::max_value() {
-            let target = get_and_redirect(&mut table, group_index);
-            // Due to path halving, this particular entry might not
-            // be up-to-date yet.
+        if table[group_index] != usize::MAX {
+            let target = find(&mut table, group_index);
             table[group_index] = target;
         }
     }
@@ -87,18 +105,26 @@ where
     N: Clone + Hash + Eq,
 {
     let (_, gindices) = separate_components(groups);
-    let gb = gindices
+    let mut gb = gindices
         .into_iter()
         .enumerate()
         .filter(|&(_, n)| n != usize::max_value())
-        .sorted_by(|&(_, n1), &(_, n2)| Ord::cmp(&n1, &n2))
-        .group_by(|&(_, n)| n);
-    gb.into_iter()
-        .map(|(_, gs)| {
-            gs.flat_map(|(i, _)| groups[i].clone())
-                .collect::<HashSet<_>>()
-        })
-        .collect()
+        .collect::<Vec<_>>();
+    gb.sort_unstable_by(|&(_, n1), &(_, n2)| Ord::cmp(&n1, &n2));
+    let mut key = None;
+    let mut res = vec![];
+    for (group_index, k) in gb {
+        if key != Some(k) {
+            res.push(HashSet::default());
+            key = Some(k);
+        }
+        if let Some(set) = res.last_mut() {
+            for item in &groups[group_index] {
+                set.insert(item.clone());
+            }
+        }
+    }
+    res
 }
 
 /// Extract connected components from a graph.
@@ -117,13 +143,8 @@ where
     components(
         &starts
             .iter()
-            .map(|s| {
-                neighbours(s)
-                    .into_iter()
-                    .chain(once(s.clone()))
-                    .collect_vec()
-            })
-            .collect_vec(),
+            .map(|s| neighbours(s).into_iter().chain(once(s.clone())).collect())
+            .collect::<Vec<_>>(),
     )
 }
 

@@ -1,33 +1,7 @@
 //! Miscellaneous utilities
 
 use integer_sqrt::IntegerSquareRoot;
-use std::ops::Sub;
-
 use num_traits::{PrimInt, Unsigned};
-
-/// Compute the absolute difference between two values.
-///
-/// # Example
-///
-/// The absolute difference between 4 and 17 as unsigned values will be 13.
-///
-/// ```
-/// use pathfinding::utils::absdiff;
-///
-/// assert_eq!(absdiff(4u32, 17u32), 13u32);
-/// assert_eq!(absdiff(17u32, 4u32), 13u32);
-/// ```
-#[inline]
-pub fn absdiff<T>(x: T, y: T) -> T
-where
-    T: Sub<Output = T> + PartialOrd,
-{
-    if x < y {
-        y - x
-    } else {
-        x - y
-    }
-}
 
 /// Return the square root of `n` if `n` is square, `None` otherwise.
 ///
@@ -49,5 +23,61 @@ where
     T: PrimInt + Unsigned,
 {
     let root = n.integer_sqrt();
-    (n == root * root).then(|| root)
+    (n == root * root).then_some(root)
+}
+
+/// Move a two-dimensional coordinate into a given direction provided that:
+/// - The `start` point is valid (given the `dimensions`).
+/// - The `direction` is not `(0,0)`
+/// - The target point is valid (given the `dimensions`).
+///
+/// # Example
+///
+/// ```
+/// use pathfinding::utils::move_in_direction;
+///
+/// let board = (8, 8);
+/// assert_eq!(move_in_direction((5, 5), (-1, -2), board), Some((4, 3)));
+/// assert_eq!(move_in_direction((1, 1), (-1, -2), board), None);
+/// ```
+#[must_use]
+#[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+pub fn move_in_direction(
+    start: (usize, usize),
+    direction: (isize, isize),
+    dimensions: (usize, usize),
+) -> Option<(usize, usize)> {
+    let (row, col) = start;
+    if row >= dimensions.0 || col >= dimensions.1 || direction == (0, 0) {
+        return None;
+    }
+    let (new_row, new_col) = (row as isize + direction.0, col as isize + direction.1);
+    (new_row >= 0
+        && (new_row as usize) < dimensions.0
+        && new_col >= 0
+        && (new_col as usize) < dimensions.1)
+        .then_some((new_row as usize, new_col as usize))
+}
+
+/// Repeatedly call [`move_in_direction`] until the returned value
+/// is `None`.
+///
+/// # Example
+///
+/// ```
+/// use pathfinding::utils::in_direction;
+///
+/// let board = (8, 8);
+/// let positions = in_direction((0, 0), (1, 2), board).collect::<Vec<_>>();
+/// assert_eq!(positions, vec![(1, 2), (2, 4), (3, 6)]);
+/// ```
+pub fn in_direction(
+    start: (usize, usize),
+    direction: (isize, isize),
+    dimensions: (usize, usize),
+) -> impl Iterator<Item = (usize, usize)> {
+    std::iter::successors(Some(start), move |current| {
+        move_in_direction(*current, direction, dimensions)
+    })
+    .skip(1)
 }

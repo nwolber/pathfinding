@@ -1,20 +1,24 @@
 //! Rectangular grid in which vertices can be added or removed, with or
 //! without diagonal links.
 
+use super::matrix::Matrix;
 use crate::directed::bfs::bfs_reach;
-use indexmap::IndexSet;
-use itertools::iproduct;
+use crate::directed::dfs::dfs_reach;
+use crate::FxIndexSet;
+use num_traits::ToPrimitive;
 use std::collections::BTreeSet;
 use std::fmt;
-use std::iter::FromIterator;
-
-use super::utils::absdiff;
+use std::iter::{FromIterator, FusedIterator};
+use std::ops::Sub;
 
 #[derive(Clone)]
 /// Representation of a rectangular grid in which vertices can be added
 /// or removed. Edges are automatically created between adjacent vertices.
 /// By default, only vertical and horizontal edges are created, unless
 /// diagonal mode is enabled.
+///
+/// The coordinate system is of the form `(x, y)`, where `x` is the column
+/// and `y` is the row. `(0, 0)` corresponds to the top-left corner.
 ///
 /// Internally, a Grid is represented either as a collection of vertices
 /// or as a collection of absent vertices, depending on the density of
@@ -31,17 +35,54 @@ use super::utils::absdiff;
 /// let mut g = Grid::new(3, 4);
 /// g.add_borders();
 ///
-/// assert_eq!(&format!("{:?}", g), "\
+/// assert_eq!(&format!("{g:?}"), "\
 /// ####
 /// #.#
 /// #.#
 /// ####");
 ///
-/// assert_eq!(&format!("{:#?}", g), "\
+/// assert_eq!(&format!("{g:#?}"), "\
 /// ▓▓▓
 /// ▓░▓
 /// ▓░▓
 /// ▓▓▓");
+/// ```
+///
+/// One of the ways to build a `Grid` is to start from an iterator of
+/// `(usize, usize)` representing the `(x, y)` coordinates:
+///
+/// ```
+/// use pathfinding::prelude::Grid;
+///
+/// let g = vec![(0, 0), (2, 2), (3, 2)].into_iter().collect::<Grid>();
+/// assert_eq!(format!("{g:?}"), "\
+/// #...
+/// ....
+/// ..##");
+/// ```
+///
+/// To be able to easily use the grid as a visualization tool for
+/// arbitrary types of coordinates, a [`from_coordinates`](Grid::from_coordinates)
+/// method will build a grid and remap the top-left most coordinate as `(0, 0)`:
+///
+/// ```
+/// use pathfinding::prelude::Grid;
+///
+/// let g = Grid::from_coordinates(&[(-16, -15), (-16, -16), (-15, -16)]).unwrap();
+/// assert_eq!(format!("{g:#?}"), "\
+/// ▓▓
+/// ▓░");
+/// ```
+/// Also, the order of lines can be inverted by using the `-` sign modifier while
+/// displaying:
+///
+/// ```
+/// # use pathfinding::prelude::Grid;
+/// #
+/// # let g = Grid::from_coordinates(&[(-16, -15), (-16, -16), (-15, -16)]).unwrap();
+/// assert_eq!(format!("{g:-#?}"), "\
+/// ▓░
+/// ▓▓");
 /// ```
 pub struct Grid {
     /// The grid width.
@@ -53,7 +94,7 @@ pub struct Grid {
     // contains absent vertices. It is false if the grid is empty by default
     // and `exclusions` contains the vertices.
     dense: bool,
-    exclusions: IndexSet<(usize, usize)>,
+    exclusions: FxIndexSet<(usize, usize)>,
 }
 
 impl Grid {
@@ -66,7 +107,7 @@ impl Grid {
             height,
             diagonal_mode: false,
             dense: false,
-            exclusions: IndexSet::new(),
+            exclusions: FxIndexSet::default(),
         }
     }
 
@@ -95,18 +136,24 @@ impl Grid {
     pub fn resize(&mut self, width: usize, height: usize) -> bool {
         let mut truncated = false;
         if width < self.width {
-            truncated |= iproduct!(width..self.width, 0..self.height).any(|c| self.has_vertex(c));
+            truncated |=
+                (width..self.width).any(|c| (0..self.height).any(|r| self.has_vertex((c, r))));
         }
         if height < self.height {
-            truncated |= iproduct!(0..self.width, height..self.height).any(|c| self.has_vertex(c));
+            truncated |=
+                (0..self.width).any(|c| (height..self.height).any(|r| self.has_vertex((c, r))));
         }
         self.exclusions.retain(|&(x, y)| x < width && y < height);
         if self.dense {
-            for vertex in iproduct!(self.width..width, 0..height) {
-                self.exclusions.insert(vertex);
+            for c in self.width..width {
+                for r in 0..height {
+                    self.exclusions.insert((c, r));
+                }
             }
-            for vertex in iproduct!(0..self.width.min(width), self.height..height) {
-                self.exclusions.insert(vertex);
+            for c in 0..self.width.min(width) {
+                for r in self.height..height {
+                    self.exclusions.insert((c, r));
+                }
             }
         }
         self.width = width;
@@ -132,7 +179,8 @@ impl Grid {
     }
 
     /// Add a new vertex. Return `true` if the vertex did not previously
-    /// exist and has been added.
+    /// exist and has been added. Return `false` if the vertex exists
+    /// already or would be outside the grid.
     pub fn add_vertex(&mut self, vertex: (usize, usize)) -> bool {
         if !self.is_inside(vertex) {
             return false;
@@ -205,7 +253,8 @@ impl Grid {
 
     fn rebalance(&mut self) {
         if self.exclusions.len() > self.width * self.height / 2 {
-            self.exclusions = iproduct!(0..self.width, 0..self.height)
+            self.exclusions = (0..self.width)
+                .flat_map(|c| (0..self.height).map(move |r| (c, r)))
                 .filter(|v| !self.exclusions.contains(v))
                 .collect();
             self.dense = !self.dense;
@@ -270,8 +319,8 @@ impl Grid {
         if !self.has_vertex(v1) || !self.has_vertex(v2) {
             return false;
         }
-        let x = absdiff(v1.0, v2.0);
-        let y = absdiff(v1.1, v2.1);
+        let x = v1.0.abs_diff(v2.0);
+        let y = v1.1.abs_diff(v2.1);
         x + y == 1 || (x == 1 && y == 1 && self.diagonal_mode)
     }
 
@@ -329,18 +378,57 @@ impl Grid {
     }
 
     /// Return a set of the indices reachable from a candidate starting point
-    /// and for which the given predicate is valid. This can be used for example
+    /// and for which the given predicate is valid using BFS. This can be used for example
     /// to implement a flood-filling algorithm. Since the indices are collected
-    /// into a vector, they can later be used without keeping a reference on the
+    /// into a collection, they can later be used without keeping a reference on the
     /// matrix itself, e.g., to modify the grid.
-    pub fn reachable<P>(&self, start: (usize, usize), mut predicate: P) -> BTreeSet<(usize, usize)>
+    ///
+    /// The search is done using a breadth first search (BFS) algorithm.
+    ///
+    /// # See also
+    ///
+    /// The [`dfs_reachable()`](`Self::dfs_reachable`) method performs a DFS search instead.
+    pub fn bfs_reachable<P>(
+        &self,
+        start: (usize, usize),
+        mut predicate: P,
+    ) -> BTreeSet<(usize, usize)>
     where
-        P: FnMut((usize, usize)) -> bool + Copy,
+        P: FnMut((usize, usize)) -> bool,
     {
         bfs_reach(start, |&n| {
             self.neighbours(n)
                 .into_iter()
-                .filter(move |&n| predicate(n))
+                .filter(|&n| predicate(n))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+    }
+
+    /// Return a set of the indices reachable from a candidate starting point
+    /// and for which the given predicate is valid using BFS. This can be used for example
+    /// to implement a flood-filling algorithm. Since the indices are collected
+    /// into a collection, they can later be used without keeping a reference on the
+    /// matrix itself, e.g., to modify the grid.
+    ///
+    /// The search is done using a depth first search (DFS) algorithm.
+    ///
+    /// # See also
+    ///
+    /// The [`bfs_reachable()`](`Self::bfs_reachable`) method performs a BFS search instead.
+    pub fn dfs_reachable<P>(
+        &self,
+        start: (usize, usize),
+        mut predicate: P,
+    ) -> BTreeSet<(usize, usize)>
+    where
+        P: FnMut((usize, usize)) -> bool,
+    {
+        dfs_reach(start, |&n| {
+            self.neighbours(n)
+                .into_iter()
+                .filter(|&n| predicate(n))
+                .collect::<Vec<_>>()
         })
         .collect()
     }
@@ -356,12 +444,56 @@ impl Grid {
     /// If diagonal mode is disabled, this is the Manhattan distance.
     #[must_use]
     pub fn distance(&self, a: (usize, usize), b: (usize, usize)) -> usize {
-        let (dx, dy) = (absdiff(a.0, b.0), absdiff(a.1, b.1));
+        let (dx, dy) = (a.0.abs_diff(b.0), a.1.abs_diff(b.1));
         if self.diagonal_mode {
             dx.max(dy)
         } else {
             dx + dy
         }
+    }
+
+    /// Build a grid from an arbitrary set of `(x, y)` coordinates. Coordinates will
+    /// be adjusted so that the returned grid is the smallest one containing
+    /// all the points while conserving horizontal and vertical distances
+    /// between them.
+    ///
+    /// This can be used for example to visualize data whose coordinates are
+    /// expressed using a non-usize integer type, such as `(isize, isize)`.
+    ///
+    /// This method returns `None` if any axis of any coordinate cannot be
+    /// represented as an `usize` once the minimum for this axis has been
+    /// subtracted.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use pathfinding::prelude::Grid;
+    ///
+    /// let grid = Grid::from_coordinates(&[(2, 2), (3, 4)]).unwrap();
+    /// assert_eq!(vec![(0, 0), (1, 2)], grid.iter().collect::<Vec<_>>());
+    /// ```
+    pub fn from_coordinates<T>(points: &[(T, T)]) -> Option<Self>
+    where
+        T: Ord + Sub<Output = T> + Copy + Default + ToPrimitive,
+    {
+        let (min_x, min_y) = (
+            points
+                .iter()
+                .map(|(x, _)| x)
+                .min()
+                .copied()
+                .unwrap_or_default(),
+            points
+                .iter()
+                .map(|(_, y)| y)
+                .min()
+                .copied()
+                .unwrap_or_default(),
+        );
+        points
+            .iter()
+            .map(|(x, y)| Some(((*x - min_x).to_usize()?, (*y - min_y).to_usize()?)))
+            .collect()
     }
 }
 
@@ -409,11 +541,7 @@ impl Iterator for GridIntoIterator {
                 if self.y == self.grid.height {
                     return None;
                 }
-                let r = if self.grid.has_vertex((self.x, self.y)) {
-                    Some((self.x, self.y))
-                } else {
-                    None
-                };
+                let r = (self.grid.has_vertex((self.x, self.y))).then_some((self.x, self.y));
                 self.x += 1;
                 if self.x == self.grid.width {
                     self.x = 0;
@@ -428,6 +556,8 @@ impl Iterator for GridIntoIterator {
         }
     }
 }
+
+impl FusedIterator for GridIntoIterator {}
 
 impl IntoIterator for Grid {
     type Item = (usize, usize);
@@ -450,7 +580,7 @@ pub struct GridIterator<'a> {
     y: usize,
 }
 
-impl<'a> Iterator for GridIterator<'a> {
+impl Iterator for GridIterator<'_> {
     type Item = (usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -459,11 +589,7 @@ impl<'a> Iterator for GridIterator<'a> {
                 if self.y == self.grid.height {
                     return None;
                 }
-                let r = if self.grid.has_vertex((self.x, self.y)) {
-                    Some((self.x, self.y))
-                } else {
-                    None
-                };
+                let r = (self.grid.has_vertex((self.x, self.y))).then_some((self.x, self.y));
                 self.x += 1;
                 if self.x == self.grid.width {
                     self.x = 0;
@@ -485,6 +611,8 @@ impl<'a> Iterator for GridIterator<'a> {
         }
     }
 }
+
+impl FusedIterator for GridIterator<'_> {}
 
 impl<'a> IntoIterator for &'a Grid {
     type Item = (usize, usize);
@@ -508,7 +636,7 @@ pub struct EdgesIterator<'a> {
     i: usize,
 }
 
-impl<'a> Iterator for EdgesIterator<'a> {
+impl Iterator for EdgesIterator<'_> {
     type Item = ((usize, usize), (usize, usize));
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -540,17 +668,56 @@ impl<'a> Iterator for EdgesIterator<'a> {
     }
 }
 
+impl FusedIterator for EdgesIterator<'_> {}
+
 impl fmt::Debug for Grid {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (present, absent) = [('#', '.'), ('▓', '░')][f.alternate() as usize];
-        for y in 0..self.height {
+        let (present, absent) = [('#', '.'), ('▓', '░')][usize::from(f.alternate())];
+        let lines: Vec<_> = if f.sign_minus() {
+            (0..self.height).rev().collect()
+        } else {
+            (0..self.height).collect()
+        };
+        let last = *lines.last().unwrap();
+        for y in lines {
             for x in 0..self.width {
-                write!(f, "{}", [absent, present][self.has_vertex((x, y)) as usize])?;
+                write!(
+                    f,
+                    "{}",
+                    [absent, present][usize::from(self.has_vertex((x, y)))]
+                )?;
             }
-            if y != self.height - 1 {
+            if y != last {
                 writeln!(f)?;
             }
         }
         Ok(())
     }
 }
+
+impl From<&Matrix<bool>> for Grid {
+    fn from(matrix: &Matrix<bool>) -> Self {
+        let mut grid = Grid::new(matrix.columns, matrix.rows);
+        for ((r, c), &v) in matrix.items() {
+            if v {
+                grid.add_vertex((c, r));
+            }
+        }
+        grid
+    }
+}
+
+impl From<Matrix<bool>> for Grid {
+    fn from(matrix: Matrix<bool>) -> Self {
+        Grid::from(&matrix)
+    }
+}
+
+impl PartialEq for Grid {
+    fn eq(&self, other: &Self) -> bool {
+        self.vertices_len() == other.vertices_len()
+            && self.iter().zip(other.iter()).all(|(a, b)| a == b)
+    }
+}
+
+impl Eq for Grid {}

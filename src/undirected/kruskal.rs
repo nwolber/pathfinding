@@ -1,7 +1,7 @@
 //! Find minimum-spanning-tree in an undirected graph using
 //! [Kruskal's algorithm](https://en.wikipedia.org/wiki/Kruskal's_algorithm).
 
-use indexmap::IndexSet;
+use crate::FxIndexSet;
 use std::hash::Hash;
 use std::mem;
 
@@ -53,8 +53,7 @@ where
     C: Clone + Ord,
 {
     let mut parents = (0..number_of_nodes).collect::<Vec<_>>();
-    let mut ranks = Vec::with_capacity(number_of_nodes);
-    ranks.resize(number_of_nodes, 1);
+    let mut ranks = vec![1; number_of_nodes];
     let mut edges = edges.to_vec();
     edges.sort_unstable_by(|a, b| a.2.cmp(&b.2));
     edges.into_iter().filter_map(move |(a, b, w)| {
@@ -77,20 +76,20 @@ where
     N: Hash + Eq,
     C: Clone + Ord,
 {
-    let mut nodes = IndexSet::new();
+    let mut nodes = FxIndexSet::default();
     let edges = edges
         .iter()
-        .map(|&(ref a, ref b, ref w)| {
+        .map(|(a, b, w)| {
             let ia = nodes.insert_full(a).0;
             let ib = nodes.insert_full(b).0;
             (ia, ib, w.clone())
         })
         .collect::<Vec<_>>();
-    kruskal_indices(nodes.len(), &edges).map(move |(ia, ib, w)| {
-        (
-            <&N>::clone(nodes.get_index(ia).unwrap()),
-            <&N>::clone(nodes.get_index(ib).unwrap()),
+    kruskal_indices(nodes.len(), &edges).filter_map(move |(ia, ib, w)| {
+        Some((
+            <&N>::clone(nodes.get_index(ia)?), // Cannot fail
+            <&N>::clone(nodes.get_index(ib)?), // Cannot fail
             w,
-        )
+        ))
     })
 }
