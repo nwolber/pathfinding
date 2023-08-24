@@ -17,6 +17,7 @@ fn simple() {
         },
         |c| *c == 'h',
         3,
+        || false,
     );
 
     assert_eq!(result.len(), 3);
@@ -42,6 +43,7 @@ fn ask_more_than_exist() {
         },
         |c| *c == 'h',
         10,
+        || false,
     );
 
     // we asked for 10 but the graph can only produce 7
@@ -67,6 +69,7 @@ fn no_path() {
         },
         |c| *c == 'h',
         2,
+        || false,
     );
 
     assert!(result.is_empty());
@@ -83,6 +86,7 @@ fn single_node() {
         },
         |c| *c == 'c',
         2,
+        || false,
     );
 
     assert_eq!(result, vec![(vec!['c'], 0)]);
@@ -104,6 +108,7 @@ fn longer_alternative_path() {
         },
         |c| *c == 'h',
         3,
+        || false,
     );
 
     assert_eq!(result.len(), 3);

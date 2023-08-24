@@ -68,10 +68,11 @@ use std::usize;
 ///                       |&p| p == GOAL);
 /// assert_eq!(result.expect("no path found").1, 4);
 /// ```
-pub fn dijkstra<N, C, FN, IN, FS>(
+pub fn dijkstra<N, C, FN, IN, FS, FA>(
     start: &N,
     mut successors: FN,
     mut success: FS,
+    mut abort: FA,
 ) -> Option<(Vec<N>, C)>
 where
     N: Eq + Hash + Clone,
@@ -79,14 +80,16 @@ where
     FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
     FS: FnMut(&N) -> bool,
+    FA: FnMut() -> bool,
 {
-    dijkstra_internal(start, &mut successors, &mut success)
+    dijkstra_internal(start, &mut successors, &mut success, &mut abort)
 }
 
-pub(crate) fn dijkstra_internal<N, C, FN, IN, FS>(
+pub(crate) fn dijkstra_internal<N, C, FN, IN, FS, FA>(
     start: &N,
     successors: &mut FN,
     success: &mut FS,
+    abort: &mut FA,
 ) -> Option<(Vec<N>, C)>
 where
     N: Eq + Hash + Clone,
@@ -94,8 +97,9 @@ where
     FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
     FS: FnMut(&N) -> bool,
+    FA: FnMut() -> bool,
 {
-    let (parents, reached) = run_dijkstra(start, successors, success);
+    let (parents, reached) = run_dijkstra(start, successors, success, abort);
     reached.map(|target| {
         (
             reverse_path(&parents, |&(p, _)| p, target),
@@ -141,14 +145,15 @@ where
 /// assert_eq!(reachables[&8], (4, 30));  // 1 -> 2 -> 4 -> 8
 /// assert_eq!(reachables[&9], (4, 30));  // 1 -> 2 -> 4 -> 9
 /// ```
-pub fn dijkstra_all<N, C, FN, IN>(start: &N, successors: FN) -> HashMap<N, (N, C)>
+pub fn dijkstra_all<N, C, FN, IN, FA>(start: &N, successors: FN, abort: FA) -> HashMap<N, (N, C)>
 where
     N: Eq + Hash + Clone,
     C: Zero + Ord + Copy,
     FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
+    FA: FnMut() -> bool,
 {
-    dijkstra_partial(start, successors, |_| false).0
+    dijkstra_partial(start, successors, |_| false, abort).0
 }
 
 /// Determine some reachable nodes from a starting point as well as the minimum cost to
@@ -168,10 +173,11 @@ where
 /// The [`build_path`] function can be used to build a full path from the starting point to one
 /// of the reachable targets.
 #[allow(clippy::missing_panics_doc)]
-pub fn dijkstra_partial<N, C, FN, IN, FS>(
+pub fn dijkstra_partial<N, C, FN, IN, FS, FA>(
     start: &N,
     mut successors: FN,
     mut stop: FS,
+    mut abort: FA,
 ) -> (HashMap<N, (N, C)>, Option<N>)
 where
     N: Eq + Hash + Clone,
@@ -179,8 +185,9 @@ where
     FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
     FS: FnMut(&N) -> bool,
+    FA: FnMut() -> bool,
 {
-    let (parents, reached) = run_dijkstra(start, &mut successors, &mut stop);
+    let (parents, reached) = run_dijkstra(start, &mut successors, &mut stop, &mut abort);
     (
         parents
             .iter()
@@ -191,10 +198,11 @@ where
     )
 }
 
-fn run_dijkstra<N, C, FN, IN, FS>(
+fn run_dijkstra<N, C, FN, IN, FS, FA>(
     start: &N,
     successors: &mut FN,
     stop: &mut FS,
+    abort: &mut FA,
 ) -> (FxIndexMap<N, (usize, C)>, Option<usize>)
 where
     N: Eq + Hash + Clone,
@@ -202,6 +210,7 @@ where
     FN: FnMut(&N) -> IN,
     IN: IntoIterator<Item = (N, C)>,
     FS: FnMut(&N) -> bool,
+    FA: FnMut() -> bool,
 {
     let mut to_see = BinaryHeap::new();
     to_see.push(SmallestHolder {
@@ -216,6 +225,10 @@ where
             let (node, _) = parents.get_index(index).unwrap();
             if stop(node) {
                 target_reached = Some(index);
+                break;
+            }
+            if abort() {
+                target_reached = None;
                 break;
             }
             successors(node)

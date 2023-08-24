@@ -39,7 +39,7 @@ mod ex1 {
     fn dijkstra_ok() {
         for target in 0..9 {
             assert_eq!(
-                dijkstra(&1, successors, |&node| node == target),
+                dijkstra(&1, successors, |&node| node == target, || false),
                 expected(target)
             );
         }
@@ -69,7 +69,7 @@ mod ex1 {
 
     #[test]
     fn djkstra_loop_ok() {
-        assert_eq!(dijkstra(&1, |_| vec![(1, 1)], |&n| n == 2), None);
+        assert_eq!(dijkstra(&1, |_| vec![(1, 1)], |&n| n == 2, || false), None);
     }
 
     #[test]
@@ -268,6 +268,7 @@ mod ex2 {
                 successors(n)
             },
             |n| n == &GOAL,
+            || false,
         )
         .expect("path not found");
         assert_eq!(cost, 8);
@@ -344,7 +345,10 @@ mod ex2 {
     #[test]
     fn dijkstra_no_path() {
         const GOAL: (usize, usize) = (1, 1);
-        assert_eq!(dijkstra(&(2, 3), successors, |n| n == &GOAL), None);
+        assert_eq!(
+            dijkstra(&(2, 3), successors, |n| n == &GOAL, || false),
+            None
+        );
     }
 
     #[test]

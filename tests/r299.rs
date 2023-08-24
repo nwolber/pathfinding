@@ -83,9 +83,14 @@ fn main() {
                 expected
             );
             assert_eq!(
-                dijkstra(start, |n| graph[n].iter().cloned(), |n| n == target)
-                    .unwrap()
-                    .1,
+                dijkstra(
+                    start,
+                    |n| graph[n].iter().cloned(),
+                    |n| n == target,
+                    || false
+                )
+                .unwrap()
+                .1,
                 expected
             );
             assert_eq!(

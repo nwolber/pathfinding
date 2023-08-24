@@ -90,6 +90,7 @@ fn corner_to_corner_dijkstra(c: &mut Criterion) {
                     &Pt::new(0, 0),
                     |n| successors(n).into_iter().map(|n| (n, 1)),
                     |n| n.x == 32 && n.y == 32,
+                    || false
                 ),
                 None
             )
@@ -170,6 +171,7 @@ fn no_path_dijkstra(c: &mut Criterion) {
                     &Pt::new(2, 3),
                     |n| successors(n).into_iter().map(|n| (n, 1)),
                     |_| false,
+                    || false
                 ),
                 None
             )

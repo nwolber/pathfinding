@@ -101,6 +101,7 @@ fn test_gps() {
         &start,
         |city| successor_distances[city].clone(),
         |city| city == &goal,
+        || false,
     );
     let (path, cost_dijkstra) = r.expect("no path found with dijkstra");
     assert_eq!(path, expected_path, "bad path found with dijkstra");
