@@ -1,3 +1,23 @@
+
+v4.3.2 / 2023-09-22
+==================
+
+  * New remaining_low_bounds() method for {Bfs,Dfs}Reachable
+  * Migrate to the evenfurther GitHub organization
+  * fix(deps): update rust crate thiserror to 1.0.48
+  * Use or_default() in test
+
+v4.3.1 / 2023-08-02
+==================
+
+  * Move `cycle_detection` module into `directed` and deprecate the former
+  * Update indexmap requirement from 1.9.2 to 2.0.0
+  * Style: use `or_default()` rather than `or_insert_with()` with default value
+  * Style: do not use `bool::then()` in `filter_map()`
+  * Style: make `partial_cmp` use `cmp`
+  * Style: reformat with let/else support
+  * Use codspeed-criterion-compat everywhere, do not require criterion
+
 v4.3.0 / 2023-05-30
 ==================
 

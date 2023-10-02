@@ -48,14 +48,12 @@ In your `Cargo.toml`, put:
 
 ``` ini
 [dependencies]
-pathfinding = "4.3.0"
+pathfinding = "4.3.2"
 ```
 
 You can then pull your preferred algorithm (BFS in this example) using:
 
 ``` rust
-extern crate pathfinding;
-
 use pathfinding::prelude::bfs;
 ```
 
@@ -83,7 +81,7 @@ let result = bfs(&Pos(1, 1), |p| p.successors(), |p| *p == GOAL);
 assert_eq!(result.expect("no path found").len(), 5);
 ```
 
-## Note
+## Note on floating-point types
 
 Several algorithms require that the numerical types used to describe
 edge weights implement `Ord`. If you wish to use Rust built-in
@@ -99,8 +97,8 @@ This code is released under a dual Apache 2.0 / MIT free software license.
 
 ## Contributing
 
-You are welcome to contribute by opening [issues](https://github.com/samueltardieu/pathfinding/issues)
-or submitting [pull requests](https://github.com/samueltardieu/pathfinding/pulls). Please open an issue
+You are welcome to contribute by opening [issues](https://github.com/evenfurther/pathfinding/issues)
+or submitting [pull requests](https://github.com/evenfurther/pathfinding/pulls). Please open an issue
 before implementing a new feature, in case it is a work in progress already or it is fit for this
 repository.
 
